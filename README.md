@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 毕业设计_基于机器学习的恶意软件检测/
 │
 ├── app/                      # 主应用程序 (新增)
@@ -62,3 +63,7 @@
 ├── scripts/                  # 脚本
 ├── requirements.txt          # Python依赖
 └── README.md                 # 项目文档
+=======
+# Machine-Learning-for-Malicious-PE-File-Detection
+I am a beginner in machine learning, here I will share my learning process, I will try to complete the project: machine learning-based malicious PE file detection; If you know a lot about machine learning or malicious PE file research, please give me advice, thank you. The dataset I used: VirusShare, language and version: Python 3.10.7
+>>>>>>> a96c8e6689bd68b6a11f673b0ab9be390fde0757
