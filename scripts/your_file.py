@@ -1,21 +1,24 @@
-MOD=998244353
-inv=pow(2,-1,MOD)
-print(inv)
-ns=[]
-t=int(input())
-for _ in range(t):
-    ns.append(int(input()))
-def C2(x):
-    return (x*(x-1))%MOD*inv%MOD
+import sys
 
-out=[]
-for n in ns:
-    a=(n+1)//2
-    b=n//2
-    A=a*a%MOD
-    B=a*b%MOD
-    C=B
-    D=b*b%MOD
-    ans=(C2(A)*B%MOD*C%MOD*D + C2(B)*A%MOD*C%MOD*D + C2(C)*A%MOD*B%MOD*D + C2(D)*A%MOD*B%MOD*C)%MOD
-    out.append(str(ans))
-print("\n".join(out))
+MOD=998244353
+n=int(sys.stdin.readline().strip())
+
+best_k=None
+best_d=None
+for d in range(1,10):
+    rem=0
+    for k in range(1,n+1):
+        rem=(rem*10+d)%n
+        if rem==0:
+            if best_k is None or k<best_k or (k==best_k and d<best_d):
+                best_k=k
+                best_d=d
+            break
+
+if best_k is None:
+    print(-1)
+else:
+    ans=0
+    for _ in range(best_k):
+        ans=(ans*10+best_d)%MOD
+    print(ans)
