@@ -28,6 +28,6 @@ __all__ = [
     'FileInfo'
 ]
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 __author__ = "蒋添麒"
 __organization__ = "大理大学数学与计算机学院"
