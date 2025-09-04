@@ -1,0 +1,30 @@
+/* Solarized light theme */
+QDialog {
+    background-color: #fdf6e3;
+    color: #657b83;
+    font-family: "DejaVu Sans", sans-serif;
+    font-size: 14px;
+}
+
+QPushButton {
+    background-color: #eee8d5;
+    color: #586e75;
+    border: 1px solid #b58900;
+    border-radius: 4px;
+    padding: 6px 12px;
+}
+
+QPushButton:hover {
+    background-color: #ddd6c4;
+}
+
+QLineEdit {
+    background-color: #ffffff;
+    color: #657b83;
+    border: 1px solid #b58900;
+    padding: 4px;
+}
+
+QLabel {
+    color: #657b83;
+}
