@@ -7,6 +7,8 @@
 import sys
 from PyQt5 import QtWidgets
 from ui.main_window import MachineLearningPEUI
+from scripts.ROOT_PATH import ROOT
+from random import randint
 
 def main():
     """主函数"""
@@ -18,6 +20,13 @@ def main():
         app.setApplicationName("恶意PE文件检测系统")
         app.setApplicationVersion("1.0.0")
         app.setOrganizationName("大理大学")
+
+        # 随机皮肤
+        qss = [str(i + 1) + '.qss' for i in range(10)]
+        qss_path = ROOT / "app" / "styles" / qss[randint(2022110, 8900253) % 10]
+        print(f"[DEBUG] selected {qss_path}")
+        qss_file = open(qss_path, 'r').read()
+        app.setStyleSheet(qss_file)
         
         # 创建主窗口
         main_window = MachineLearningPEUI()
