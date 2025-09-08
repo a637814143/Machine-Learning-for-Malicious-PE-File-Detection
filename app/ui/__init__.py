@@ -15,6 +15,7 @@ from .resources import (
     get_font
 )
 from core.utils.visualization import get_pe_info_html as FileInfo
+from core.utils.logger import set_log
 
 __all__ = [
     'MachineLearningPEUI',
@@ -25,7 +26,8 @@ __all__ = [
     'get_ui_string',
     'get_color',
     'get_font',
-    'FileInfo'
+    'FileInfo',
+    'set_log'
 ]
 
 __version__ = "1.1.0"

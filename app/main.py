@@ -10,6 +10,9 @@ from ui.main_window import MachineLearningPEUI
 from scripts.ROOT_PATH import ROOT
 from random import randint
 
+LOG_PATH = ROOT / "docs" / "log.txt"
+
+
 def main():
     """主函数"""
     try:

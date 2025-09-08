@@ -101,7 +101,7 @@ def get_font(font_name: str) -> str:
 
 # 保持原有的导入，避免破坏现有功能
 try:
-    from scripts.FILE_NAME_RULE import GET_NAME
+    from scripts.FILE_NAME import GET_NAME
     print(GET_NAME())
 except ImportError:
     print("scripts.FILE_NAME_RULE 模块导入失败")

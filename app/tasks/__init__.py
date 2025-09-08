@@ -1,9 +1,4 @@
-"""Utility package collecting asynchronous task functions.
-
-Tasks are registered using :func:`register_task` and stored in :data:`TASKS`.
-Importing this package loads the default tasks so that they are ready to use.
-"""
-
+# app/tasks/__init__.py
 from .registry import TASKS, register_task  # noqa: F401
 
 # Import default tasks to populate TASKS on package import
