@@ -36,7 +36,7 @@ UI_STRINGS = {
     "install_deps": "安装依赖",
     "download_report": "下载报告",
     "view_logs": "查看日志",
-    "select_model": "选择模型请下拉选项"
+    "select_model": "清空文本展示区"
 }
 
 # 颜色资源
