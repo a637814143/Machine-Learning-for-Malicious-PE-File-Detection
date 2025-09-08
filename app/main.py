@@ -9,6 +9,8 @@ from PyQt5 import QtWidgets
 from ui.main_window import MachineLearningPEUI
 from scripts.ROOT_PATH import ROOT
 from random import randint
+from core.utils.logger import set_log
+from scripts.FILE_NAME import GET_TIME
 
 LOG_PATH = ROOT / "docs" / "log.txt"
 
@@ -27,7 +29,7 @@ def main():
         # 随机皮肤
         qss = [str(i + 1) + '.qss' for i in range(10)]
         qss_path = ROOT / "app" / "styles" / qss[randint(2022110, 8900253) % 10]
-        print(f"[DEBUG] selected {qss_path}")
+        set_log(LOG_PATH, GET_TIME(f"[DEBUG] selected {qss_path}"))
         qss_file = open(qss_path, 'r').read()
         app.setStyleSheet(qss_file)
         

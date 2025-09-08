@@ -233,8 +233,8 @@ class MachineLearningPEUI(QtWidgets.QDialog):
         self.btn_view_logs = QtWidgets.QPushButton("查看日志", self)
         self.btn_view_logs.setGeometry(1060, 695, 160, 35)
 
-        self.btn_model_select = QtWidgets.QPushButton("选择模型请下拉选项", self)
-        self.btn_model_select.setGeometry(1230, 695, 161, 35)
+        self.btn_clear_text = QtWidgets.QPushButton("清空文本展示区", self)
+        self.btn_clear_text.setGeometry(1230, 695, 161, 35)
 
         # 底部信息
         self.infoTextBrowser = QtWidgets.QTextBrowser(self)
@@ -270,7 +270,7 @@ class MachineLearningPEUI(QtWidgets.QDialog):
         # 其他按钮
         self.btn_download_report.clicked.connect(self.download_report)
         self.btn_view_logs.clicked.connect(self.view_logs)
-        self.btn_model_select.clicked.connect(self.select_model_button)
+        self.btn_clear_text.clicked.connect(self.clear_result_text)
 
     # --- 文件选择槽 ---
     def select_input_file(self):
@@ -334,7 +334,6 @@ class MachineLearningPEUI(QtWidgets.QDialog):
         """查看日志"""
         self._append_result_text("查看日志：占位（未实现）")
 
-    def select_model_button(self):
-        """选择模型按钮"""
-        model = self.modelComboBox.currentText()
-        self.infoTextBrowser.append(f"选择模型：{model}")
+    def clear_result_text(self):
+        """清空文件信息展示区"""
+        self.resultTextBrowser.clear()
