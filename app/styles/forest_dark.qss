@@ -1,0 +1,30 @@
+/* Forest dark theme */
+QDialog {
+    background-color: #0b1e13;
+    color: #a3d9a5;
+    font-family: "Georgia", serif;
+    font-size: 14px;
+}
+
+QPushButton {
+    background-color: #1f3d2b;
+    color: #a3d9a5;
+    border: 1px solid #4c9a2a;
+    border-radius: 4px;
+    padding: 6px 12px;
+}
+
+QPushButton:hover {
+    background-color: #295235;
+}
+
+QLineEdit {
+    background-color: #1f3d2b;
+    color: #a3d9a5;
+    border: 1px solid #4c9a2a;
+    padding: 4px;
+}
+
+QLabel {
+    color: #a3d9a5;
+}

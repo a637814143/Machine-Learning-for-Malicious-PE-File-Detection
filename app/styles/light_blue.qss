@@ -1,0 +1,30 @@
+/* Light blue theme */
+QDialog {
+    background-color: #f0f8ff;
+    color: #003366;
+    font-family: "Arial", sans-serif;
+    font-size: 14px;
+}
+
+QPushButton {
+    background-color: #e0f0ff;
+    color: #003366;
+    border: 1px solid #6699cc;
+    border-radius: 4px;
+    padding: 6px 12px;
+}
+
+QPushButton:hover {
+    background-color: #d0e8ff;
+}
+
+QLineEdit {
+    background-color: #ffffff;
+    color: #003366;
+    border: 1px solid #6699cc;
+    padding: 4px;
+}
+
+QLabel {
+    color: #003366;
+}
