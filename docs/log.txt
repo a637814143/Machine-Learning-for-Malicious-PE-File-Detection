@@ -7,3 +7,4 @@
 2025/09/08 23:25:33 [DEBUG] selected C:\Users\86133\PycharmProjects\毕业设计_基于机器学习的恶意软件检测\app\styles\3.qss
 2025/09/08 23:25:38 [DEBUG] selected C:\Users\86133\PycharmProjects\毕业设计_基于机器学习的恶意软件检测\app\styles\5.qss
 2025/09/08 23:25:41 [DEBUG] selected C:\Users\86133\PycharmProjects\毕业设计_基于机器学习的恶意软件检测\app\styles\1.qss
+2025/09/09 08:51:26 [DEBUG] selected C:\Users\86133\PycharmProjects\毕业设计_基于机器学习的恶意软件检测\app\styles\4.qss
