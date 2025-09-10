@@ -15,6 +15,10 @@ from .registry import register_task
 
 # Importing directly to avoid circular import with app.ui
 from core.utils.visualization import get_pe_info_html as FileInfo
+from core.feature_engineering.pe_parser import (
+    extract_features_from_dir,
+    vectorize_features,
+)
 
 try:
     import pefile
@@ -68,11 +72,9 @@ def _placeholder_factory(task_name: str):
         text(f"{_name}：占位（未实现）")
     return _task
 
-# Register placeholders for other buttons
+# Register placeholders for remaining buttons
 for _name in [
     "数据清洗",
-    "提取特征",
-    "特征转换",
     "训练模型",
     "测试模型",
     "静态检测",
@@ -81,3 +83,26 @@ for _name in [
     "安装依赖",
 ]:
     _placeholder_factory(_name)
+
+
+@register_task("提取特征")
+def task_extract_features(args, progress, text):
+    """Extract PE features for a directory of files."""
+
+    if len(args) < 2:
+        text("需要提供输入文件夹和输出路径")
+        return
+    input_dir, save_path = args[0], args[1]
+    extract_features_from_dir(input_dir, save_path, progress_callback=progress, text_callback=text)
+
+
+@register_task("特征转换")
+def task_vectorize_features(args, progress, text):
+    """Vectorise previously extracted features."""
+
+    if len(args) < 2:
+        text("需要提供特征文件和输出路径")
+        return
+    feature_path, save_path = args[0], args[1]
+    vectorize_features(feature_path, save_path, progress_callback=progress, text_callback=text)
+

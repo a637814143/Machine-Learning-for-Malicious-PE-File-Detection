@@ -1,5 +1,17 @@
-import numpy as np
+"""Utility helpers for feature extraction.
+
+This module contains low level helpers used by the feature engineering
+pipeline.  Functions here avoid any dependence on external datasets such as
+EMBER so that all features are computed directly from the provided PE file.
+"""
+
+from __future__ import annotations
+
+import hashlib
 import math
+from typing import Iterable
+
+import numpy as np
 
 
 def ByteHistogram(pe_path: str, is_normalize: bool = False) -> np.ndarray:
@@ -57,4 +69,37 @@ def ByteEntropyHistogram(pe_path: str, window_size: int = 2048) -> np.ndarray:
         histogram[byte_bin, entropy_bin] += 1
 
     return histogram.flatten()
+
+
+def stable_hash(value: str, modulo: int) -> int:
+    """Return a stable hash of ``value`` in the range ``[0, modulo)``.
+
+    Python's built-in ``hash`` is salted per process which makes it
+    non-deterministic between runs.  Feature hashing therefore relies on a
+    cryptographic hash (MD5) so that the same value is always mapped to the
+    same index.
+
+    Parameters
+    ----------
+    value:
+        Input string to be hashed.
+    modulo:
+        Size of the target hash space.
+    """
+
+    digest = hashlib.md5(value.encode("utf-8", errors="ignore")).digest()
+    return int.from_bytes(digest, byteorder="little") % modulo
+
+
+def chunked_iterable(it: Iterable, size: int) -> Iterable[list]:
+    """Yield lists of length ``size`` from ``it`` until exhausted."""
+
+    chunk: list = []
+    for item in it:
+        chunk.append(item)
+        if len(chunk) == size:
+            yield chunk
+            chunk = []
+    if chunk:
+        yield chunk
 
