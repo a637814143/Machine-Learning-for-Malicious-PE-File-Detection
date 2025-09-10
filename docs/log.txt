@@ -8,3 +8,17 @@
 2025/09/08 23:25:38 [DEBUG] selected C:\Users\86133\PycharmProjects\毕业设计_基于机器学习的恶意软件检测\app\styles\5.qss
 2025/09/08 23:25:41 [DEBUG] selected C:\Users\86133\PycharmProjects\毕业设计_基于机器学习的恶意软件检测\app\styles\1.qss
 2025/09/09 08:51:26 [DEBUG] selected C:\Users\86133\PycharmProjects\毕业设计_基于机器学习的恶意软件检测\app\styles\4.qss
+2025/09/09 12:26:37 [DEBUG] selected C:\Users\86133\PycharmProjects\毕业设计_基于机器学习的恶意软件检测\app\styles\3.qss
+2025/09/09 12:27:20 [DEBUG] selected C:\Users\86133\PycharmProjects\毕业设计_基于机器学习的恶意软件检测\app\styles\2.qss
+2025/09/09 12:27:23 [DEBUG] selected C:\Users\86133\PycharmProjects\毕业设计_基于机器学习的恶意软件检测\app\styles\9.qss
+2025/09/09 12:27:27 [DEBUG] selected C:\Users\86133\PycharmProjects\毕业设计_基于机器学习的恶意软件检测\app\styles\1.qss
+2025/09/09 12:27:56 [INFO] selected C:\Users\86133\PycharmProjects\毕业设计_基于机器学习的恶意软件检测\app\styles\7.qss
+2025/09/09 12:28:08 [INFO] selected C:\Users\86133\PycharmProjects\毕业设计_基于机器学习的恶意软件检测\app\styles\1.qss
+2025/09/09 12:28:11 [INFO] selected C:\Users\86133\PycharmProjects\毕业设计_基于机器学习的恶意软件检测\app\styles\4.qss
+2025/09/09 13:52:48 [INFO] selected C:\Users\86133\PycharmProjects\毕业设计_基于机器学习的恶意软件检测\app\styles\9.qss
+2025/09/09 13:52:53 [INFO] selected C:\Users\86133\PycharmProjects\毕业设计_基于机器学习的恶意软件检测\app\styles\2.qss
+2025/09/09 13:52:56 [INFO] selected C:\Users\86133\PycharmProjects\毕业设计_基于机器学习的恶意软件检测\app\styles\2.qss
+2025/09/09 13:52:59 [INFO] selected C:\Users\86133\PycharmProjects\毕业设计_基于机器学习的恶意软件检测\app\styles\6.qss
+2025/09/09 13:53:02 [INFO] selected C:\Users\86133\PycharmProjects\毕业设计_基于机器学习的恶意软件检测\app\styles\2.qss
+2025/09/09 13:53:05 [INFO] selected C:\Users\86133\PycharmProjects\毕业设计_基于机器学习的恶意软件检测\app\styles\10.qss
+2025/09/10 17:25:04 [INFO] selected C:\Users\86133\PycharmProjects\毕业设计_基于机器学习的恶意软件检测\app\styles\3.qss

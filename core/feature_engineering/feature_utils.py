@@ -1,6 +1,7 @@
 import numpy as np
 import math
 
+
 def ByteHistogram(pe_path: str, is_normalize: bool = False) -> np.ndarray:
     """
     统计每个字节值出现次数，对于是否归一化可以调整参数，默认不归一化

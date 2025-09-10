@@ -5,6 +5,8 @@ from PyQt5 import QtCore, QtWidgets
 from PyQt5.QtWidgets import QFileDialog
 from .progress_dialog import Worker
 from .report_view import ReportManager
+from core.utils.logger import set_log
+from scripts.FILE_NAME import GET_TIME
 
 
 class MachineLearningPEUI(QtWidgets.QDialog):
@@ -282,7 +284,7 @@ class MachineLearningPEUI(QtWidgets.QDialog):
 
     def select_output_file(self):
         """选择输出文件夹"""
-        print("[DEBUG] select_output_file called")
+        set_log(GET_TIME("[DEBUG] select_output_file called"))
         path = QFileDialog.getExistingDirectory(self, "选择输出文件夹")
         if path:
             self.outputLineEdit.setText(path)
