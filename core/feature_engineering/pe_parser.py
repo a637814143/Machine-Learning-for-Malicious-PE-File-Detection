@@ -1,11 +1,3 @@
-
-"""Wrapper utilities around the LIEF PE parser.
-
-This module provides a thin abstraction so the rest of the feature
-extraction code only deals with a simple `parse_pe` function.  Using a
-wrapper makes it easier to stub or mock during tests.
-"""
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -27,7 +19,10 @@ def parse_pe(path: str) -> Optional[lief.PE.Binary]:
         return None
 
     try:
-        binary = lief.parse(str(file_path))
+        # Parsing from raw bytes avoids issues with non-ASCII paths on
+        # some platforms (e.g. Windows).
+        data = file_path.read_bytes()
+        binary = lief.PE.parse(list(data))
     except Exception:
         return None
 
