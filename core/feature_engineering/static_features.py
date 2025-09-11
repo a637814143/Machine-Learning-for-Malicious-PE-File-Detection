@@ -98,14 +98,12 @@ def extract_features(pe_path: Union[str, Path]) -> Dict[str, object]:
     exports_count = len(binary.exported_functions) if binary.has_exports else 0
     resources_count = len(binary.resources.childs) if binary.has_resources else 0
 
+    oh = binary.optional_header
+
     features["general"] = {
         "file_size": pe_path.stat().st_size,
         "virtual_size": int(getattr(binary, "virtual_size", 0)),
-        "entrypoint": int(
-            binary.optional_header.addressof_entrypoint
-            if binary.has_optional_header
-            else 0
-        ),
+        "entrypoint": int(oh.addressof_entrypoint) if oh is not None else 0,
         "num_sections": sections_count,
         "num_imports": imports_count,
         "num_exports": exports_count,
@@ -128,44 +126,47 @@ def extract_features(pe_path: Union[str, Path]) -> Dict[str, object]:
     }
 
     # Optional header -----------------------------------------------------
-    oh = binary.optional_header
-    features["optional_header"] = {
-        "magic": int(oh.magic.value),
-        "major_linker_version": int(oh.major_linker_version),
-        "minor_linker_version": int(oh.minor_linker_version),
-        "size_of_code": int(oh.sizeof_code),
-        "size_of_initialized_data": int(oh.sizeof_initialized_data),
-        "size_of_uninitialized_data": int(oh.sizeof_uninitialized_data),
-        "addressof_entrypoint": int(oh.addressof_entrypoint),
-        "base_of_code": int(oh.baseof_code),
-        "imagebase": int(oh.imagebase),
-        "section_alignment": int(oh.section_alignment),
-        "file_alignment": int(oh.file_alignment),
-        "major_os_version": int(oh.major_operating_system_version),
-        "minor_os_version": int(oh.minor_operating_system_version),
-        "major_image_version": int(oh.major_image_version),
-        "minor_image_version": int(oh.minor_image_version),
-        "major_subsystem_version": int(oh.major_subsystem_version),
-        "minor_subsystem_version": int(oh.minor_subsystem_version),
-        "win32_version_value": int(oh.win32_version_value),
-        "sizeof_image": int(oh.sizeof_image),
-        "sizeof_headers": int(oh.sizeof_headers),
-        "checksum": int(oh.checksum),
-        "subsystem": int(oh.subsystem),
-        "dll_characteristics": int(oh.dll_characteristics),
-        "sizeof_stack_reserve": int(oh.sizeof_stack_reserve),
-        "sizeof_stack_commit": int(oh.sizeof_stack_commit),
-        "sizeof_heap_reserve": int(oh.sizeof_heap_reserve),
-        "sizeof_heap_commit": int(oh.sizeof_heap_commit),
-        "loader_flags": int(oh.loader_flags),
-        "numberof_rva_and_size": int(oh.numberof_rva_and_size),
-    }
+    if oh is not None:
+        features["optional_header"] = {
+            "magic": int(oh.magic.value),
+            "major_linker_version": int(oh.major_linker_version),
+            "minor_linker_version": int(oh.minor_linker_version),
+            "size_of_code": int(oh.sizeof_code),
+            "size_of_initialized_data": int(oh.sizeof_initialized_data),
+            "size_of_uninitialized_data": int(oh.sizeof_uninitialized_data),
+            "addressof_entrypoint": int(oh.addressof_entrypoint),
+            "base_of_code": int(oh.baseof_code),
+            "imagebase": int(oh.imagebase),
+            "section_alignment": int(oh.section_alignment),
+            "file_alignment": int(oh.file_alignment),
+            "major_os_version": int(oh.major_operating_system_version),
+            "minor_os_version": int(oh.minor_operating_system_version),
+            "major_image_version": int(oh.major_image_version),
+            "minor_image_version": int(oh.minor_image_version),
+            "major_subsystem_version": int(oh.major_subsystem_version),
+            "minor_subsystem_version": int(oh.minor_subsystem_version),
+            "win32_version_value": int(oh.win32_version_value),
+            "sizeof_image": int(oh.sizeof_image),
+            "sizeof_headers": int(oh.sizeof_headers),
+            "checksum": int(oh.checksum),
+            "subsystem": int(oh.subsystem),
+            "dll_characteristics": int(oh.dll_characteristics),
+            "sizeof_stack_reserve": int(oh.sizeof_stack_reserve),
+            "sizeof_stack_commit": int(oh.sizeof_stack_commit),
+            "sizeof_heap_reserve": int(oh.sizeof_heap_reserve),
+            "sizeof_heap_commit": int(oh.sizeof_heap_commit),
+            "loader_flags": int(oh.loader_flags),
+            "numberof_rva_and_size": int(oh.numberof_rva_and_size),
+        }
 
-    # Data directories ----------------------------------------------------
-    directories: List[Dict[str, int]] = []
-    for dd in oh.data_directories:
-        directories.append({"rva": int(dd.rva), "size": int(dd.size)})
-    features["data_directories"] = directories
+        # Data directories ----------------------------------------------------
+        directories: List[Dict[str, int]] = []
+        for dd in oh.data_directories:
+            directories.append({"rva": int(dd.rva), "size": int(dd.size)})
+        features["data_directories"] = directories
+    else:
+        features["optional_header"] = {}
+        features["data_directories"] = []
 
     # Sections ------------------------------------------------------------
     features["sections"] = _section_features(binary)
