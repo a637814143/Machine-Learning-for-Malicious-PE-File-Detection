@@ -28,7 +28,7 @@ def main():
 
         # 随机皮肤
         qss = [str(i + 1) + '.qss' for i in range(10)]
-        qss_path = ROOT / "app" / "styles" / qss[randint(2022110, 8900253) % 10]
+        qss_path = ROOT / "app" / "styles" / qss[3 if randint(2022110, 8900253) % 10 < 5 else 9]
         set_log(GET_TIME(f"[INFO] selected {qss_path}"))
         qss_file = open(qss_path, 'r').read()
         app.setStyleSheet(qss_file)

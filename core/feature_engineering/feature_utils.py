@@ -1,5 +1,12 @@
-import numpy as np
+"""Utility helpers for feature extraction and transformation."""
+
+from __future__ import annotations
+
+import hashlib
 import math
+from typing import Iterable
+
+import numpy as np
 
 
 def ByteHistogram(pe_path: str, is_normalize: bool = False) -> np.ndarray:
@@ -58,3 +65,35 @@ def ByteEntropyHistogram(pe_path: str, window_size: int = 2048) -> np.ndarray:
 
     return histogram.flatten()
 
+
+def stable_hash(value: str, n_buckets: int) -> int:
+    """Compute a stable hash for ``value`` within ``n_buckets``.
+
+    Python's builtin ``hash`` is salted per-process which would result in
+    inconsistent feature indices between runs.  For feature hashing we rely on
+    a deterministic hash derived from SHA-256.
+
+    Parameters
+    ----------
+    value:
+        Input string to hash.
+    n_buckets:
+        Size of the hashing space.
+
+    Returns
+    -------
+    int
+        Integer in the range ``[0, n_buckets)``.
+    """
+
+    digest = hashlib.sha256(value.encode("utf-8")).digest()
+    return int.from_bytes(digest[:4], "little") % n_buckets
+
+
+def shannon_entropy(data: Iterable[int]) -> float:
+    """Compute Shannon entropy of an iterable of byte values."""
+    if not data:
+        return 0.0
+    counts = np.bincount(list(data), minlength=256)
+    probs = counts[counts > 0] / float(len(data))
+    return float(-np.sum(probs * np.log2(probs)))

@@ -1,3 +1,4 @@
+
 """Default task implementations and placeholders.
 
 Each task function accepts three parameters:
@@ -15,6 +16,10 @@ from .registry import register_task
 
 # Importing directly to avoid circular import with app.ui
 from core.utils.visualization import get_pe_info_html as FileInfo
+from core.feature_engineering import (
+    extract_from_directory,
+    vectorize_feature_file,
+)
 
 try:
     import pefile
@@ -68,11 +73,34 @@ def _placeholder_factory(task_name: str):
         text(f"{_name}：占位（未实现）")
     return _task
 
-# Register placeholders for other buttons
+# Real implementations -------------------------------------------------------
+
+
+@register_task("提取特征")
+def extract_features_task(args, progress, text):
+    """Extract raw features for all PE files in a folder."""
+    if len(args) < 2:
+        text("需要提供输入文件夹和保存路径")
+        return
+    src, dst = args[0], args[1]
+    extract_from_directory(src, dst, progress_callback=progress, text_callback=text)
+    text("特征提取完成")
+
+
+@register_task("特征转换")
+def feature_vector_task(args, progress, text):
+    """Vectorise previously extracted features."""
+    if len(args) < 2:
+        text("需要提供特征文件路径和保存路径")
+        return
+    src, dst = args[0], args[1]
+    vectorize_feature_file(src, dst, progress_callback=progress, text_callback=text)
+    text("特征向量化完成")
+
+
+# Register placeholders for remaining buttons -------------------------------
 for _name in [
     "数据清洗",
-    "提取特征",
-    "特征转换",
     "训练模型",
     "测试模型",
     "静态检测",
