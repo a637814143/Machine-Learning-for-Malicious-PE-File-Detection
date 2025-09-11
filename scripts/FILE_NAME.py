@@ -2,6 +2,7 @@
 
 import inspect
 from datetime import datetime
+from pathlib import Path
 
 
 def NAME_RULE() -> str:
@@ -10,7 +11,7 @@ def NAME_RULE() -> str:
     :return:
     """
     stack = inspect.stack()
-    name = stack[1].filename.split('.')[0].split('\\')[-1]
+    name = Path(stack[1].filename).stem
     time = datetime.now().strftime("%Y.%m.%d_%H.%M.%S")
     final_name = name + '~' + time
 
