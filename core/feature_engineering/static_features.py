@@ -10,10 +10,8 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Union
 from scripts.FILE_NAME import NAME_RULE
-
-import numpy as np
 
 from .feature_utils import ByteEntropyHistogram, ByteHistogram, shannon_entropy
 from .pe_parser import parse_pe
@@ -69,7 +67,7 @@ def _resources_features(binary) -> List[str]:
     return resources
 
 
-def extract_features(pe_path: str) -> Dict[str, object]:
+def extract_features(pe_path: Union[str, Path]) -> Dict[str, object]:
     """Extract a rich set of static features from ``pe_path``.
 
     Parameters
@@ -83,11 +81,10 @@ def extract_features(pe_path: str) -> Dict[str, object]:
         Nested dictionary with raw (non-vectorised) features.
     """
 
-    binary = parse_pe(pe_path)
+    pe_path = Path(pe_path)
+    binary = parse_pe(str(pe_path))
     if binary is None:
         return {}
-
-    path = Path(pe_path)
 
     features: Dict[str, object] = {}
 
@@ -102,7 +99,7 @@ def extract_features(pe_path: str) -> Dict[str, object]:
     resources_count = len(binary.resources.childs) if binary.has_resources else 0
 
     features["general"] = {
-        "file_size": path.stat().st_size,
+        "file_size": pe_path.stat().st_size,
         "virtual_size": int(getattr(binary, "virtual_size", 0)),
         "entrypoint": int(
             binary.optional_header.addressof_entrypoint
@@ -115,7 +112,7 @@ def extract_features(pe_path: str) -> Dict[str, object]:
         "num_resources": resources_count,
         "has_signature": int(binary.has_signature),
         "has_debug": int(binary.has_debug),
-        "overall_entropy": shannon_entropy(path.read_bytes()),
+        "overall_entropy": shannon_entropy(pe_path.read_bytes()),
     }
 
     # Header --------------------------------------------------------------
@@ -182,22 +179,22 @@ def extract_features(pe_path: str) -> Dict[str, object]:
 
 
 def extract_from_directory(
-    folder: str,
-    save_path: str,
+    folder: Union[str, Path],
+    save_path: Union[str, Path],
     progress_callback=None,
     text_callback=None,
-) -> None:
+) -> Path:
     """Extract features for each PE file in ``folder``.
 
-    The features are written as JSON lines to ``save_path``.  Progress can be
-    reported through ``progress_callback`` and ``text_callback`` which follow
-    the UI's expectations.
+    The features are written as JSON lines to ``save_path`` and the resulting
+    file path is returned.  Progress can be reported through
+    ``progress_callback`` and ``text_callback`` which follow the UI's
+    expectations.
     """
-    folder = folder.split('/')
-    folder[-1] = ''
-    folder_path = Path('/'.join(folder))
-    print(folder_path)
-    print(save_path)
+    folder_path = Path(folder)
+    output_dir = Path(save_path)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
     files = [
         p
         for p in folder_path.rglob("*")
@@ -210,10 +207,18 @@ def extract_from_directory(
     if text_callback is None:
         text_callback = lambda x: None
 
-    save_path += NAME_RULE() + '.jsonl'
-    with open(save_path, "w", encoding="utf-8") as f:
+    save_file = output_dir / f"{NAME_RULE()}.jsonl"
+
+    if total == 0:
+        save_file.touch()
+        progress_callback(100)
+        return save_file
+
+    with open(save_file, "w", encoding="utf-8") as f:
         for idx, file in enumerate(files, 1):
-            feats = extract_features(str(file))
+            feats = extract_features(file)
             f.write(json.dumps({"path": str(file), "features": feats}) + "\n")
             progress_callback(int(idx / total * 100))
             text_callback(f"已处理 {file.name}")
+
+    return save_file
