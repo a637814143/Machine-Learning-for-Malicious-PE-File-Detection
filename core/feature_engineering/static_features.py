@@ -1,18 +1,12 @@
-"""Static PE feature extraction using :mod:`lief`.
-
-The extraction in this module purposely avoids any vectorisation step.  It
-collects rich structural information from a PE file and outputs a nested
-dictionary representation.  A separate transformation step will convert this
-representation into fixed-length feature vectors.
-"""
+# core/feature_engineering/static_features.py
 
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Dict, List, Union
-from scripts.FILE_NAME import NAME_RULE
+from pathlib import Path
 
+from scripts.FILE_NAME import NAME_RULE
 from .feature_utils import ByteEntropyHistogram, ByteHistogram, shannon_entropy
 from .pe_parser import parse_pe
 
@@ -56,31 +50,40 @@ def _resources_features(binary) -> List[str]:
         return resources
 
     def walk(node, path=""):
-        current = f"{path}/{node.id}" if path else str(node.id)
-        if node.is_leaf:
-            resources.append(current)
-        else:
-            for child in node.childs:
-                walk(child, current)
+        try:
+            current = f"{path}/{node.id}" if path else str(node.id)
+            
+            # Try different ways to determine if it's a leaf node
+            is_leaf = False
+            if hasattr(node, 'is_leaf'):
+                is_leaf = node.is_leaf
+            elif hasattr(node, 'is_directory'):
+                is_leaf = not node.is_directory
+            else:
+                # If we can't determine, assume it's a leaf if it has no children
+                children = getattr(node, 'childs', None) or getattr(node, 'children', [])
+                is_leaf = not children or len(children) == 0
+            
+            if is_leaf:
+                resources.append(current)
+            else:
+                children = getattr(node, 'childs', None) or getattr(node, 'children', [])
+                if children:
+                    for child in children:
+                        walk(child, current)
+        except Exception as e:
 
-    walk(binary.resources)
+            pass
+
+    try:
+        walk(binary.resources)
+    except Exception as e:
+        pass
+    
     return resources
 
 
 def extract_features(pe_path: Union[str, Path]) -> Dict[str, object]:
-    """Extract a rich set of static features from ``pe_path``.
-
-    Parameters
-    ----------
-    pe_path:
-        Path to the PE file.
-
-    Returns
-    -------
-    dict
-        Nested dictionary with raw (non-vectorised) features.
-    """
-
     pe_path = Path(pe_path)
     binary = parse_pe(str(pe_path))
     if binary is None:
@@ -88,34 +91,32 @@ def extract_features(pe_path: Union[str, Path]) -> Dict[str, object]:
 
     features: Dict[str, object] = {}
 
-    # Byte histograms -----------------------------------------------------
-    features["byte_hist"] = ByteHistogram(pe_path).tolist()
-    features["byte_entropy_hist"] = ByteEntropyHistogram(pe_path).tolist()
+    # Byte histograms
+    features["byte_hist"] = ByteHistogram(str(pe_path)).tolist()
+    features["byte_entropy_hist"] = ByteEntropyHistogram(str(pe_path)).tolist()
 
-    # General file statistics --------------------------------------------
+    # General file statistics
     sections_count = len(binary.sections)
     imports_count = sum(len(lib.entries) for lib in binary.imports)
     exports_count = len(binary.exported_functions) if binary.has_exports else 0
     resources_count = len(binary.resources.childs) if binary.has_resources else 0
 
+    oh = binary.optional_header
+
     features["general"] = {
         "file_size": pe_path.stat().st_size,
         "virtual_size": int(getattr(binary, "virtual_size", 0)),
-        "entrypoint": int(
-            binary.optional_header.addressof_entrypoint
-            if binary.has_optional_header
-            else 0
-        ),
+        "entrypoint": int(oh.addressof_entrypoint) if oh is not None else 0,
         "num_sections": sections_count,
         "num_imports": imports_count,
         "num_exports": exports_count,
         "num_resources": resources_count,
-        "has_signature": int(binary.has_signature),
+        "has_signature": int(binary.has_signatures),
         "has_debug": int(binary.has_debug),
         "overall_entropy": shannon_entropy(pe_path.read_bytes()),
     }
 
-    # Header --------------------------------------------------------------
+    # Header
     h = binary.header
     features["header"] = {
         "machine": int(h.machine.value),
@@ -127,50 +128,59 @@ def extract_features(pe_path: Union[str, Path]) -> Dict[str, object]:
         "characteristics": int(h.characteristics),
     }
 
-    # Optional header -----------------------------------------------------
-    oh = binary.optional_header
-    features["optional_header"] = {
-        "magic": int(oh.magic.value),
-        "major_linker_version": int(oh.major_linker_version),
-        "minor_linker_version": int(oh.minor_linker_version),
-        "size_of_code": int(oh.sizeof_code),
-        "size_of_initialized_data": int(oh.sizeof_initialized_data),
-        "size_of_uninitialized_data": int(oh.sizeof_uninitialized_data),
-        "addressof_entrypoint": int(oh.addressof_entrypoint),
-        "base_of_code": int(oh.baseof_code),
-        "imagebase": int(oh.imagebase),
-        "section_alignment": int(oh.section_alignment),
-        "file_alignment": int(oh.file_alignment),
-        "major_os_version": int(oh.major_operating_system_version),
-        "minor_os_version": int(oh.minor_operating_system_version),
-        "major_image_version": int(oh.major_image_version),
-        "minor_image_version": int(oh.minor_image_version),
-        "major_subsystem_version": int(oh.major_subsystem_version),
-        "minor_subsystem_version": int(oh.minor_subsystem_version),
-        "win32_version_value": int(oh.win32_version_value),
-        "sizeof_image": int(oh.sizeof_image),
-        "sizeof_headers": int(oh.sizeof_headers),
-        "checksum": int(oh.checksum),
-        "subsystem": int(oh.subsystem),
-        "dll_characteristics": int(oh.dll_characteristics),
-        "sizeof_stack_reserve": int(oh.sizeof_stack_reserve),
-        "sizeof_stack_commit": int(oh.sizeof_stack_commit),
-        "sizeof_heap_reserve": int(oh.sizeof_heap_reserve),
-        "sizeof_heap_commit": int(oh.sizeof_heap_commit),
-        "loader_flags": int(oh.loader_flags),
-        "numberof_rva_and_size": int(oh.numberof_rva_and_size),
-    }
+    # Optional header
+    if oh is not None:
+        features["optional_header"] = {
+            "magic": int(oh.magic.value),
+            "major_linker_version": int(oh.major_linker_version),
+            "minor_linker_version": int(oh.minor_linker_version),
+            "size_of_code": int(oh.sizeof_code),
+            "size_of_initialized_data": int(oh.sizeof_initialized_data),
+            "size_of_uninitialized_data": int(oh.sizeof_uninitialized_data),
+            "addressof_entrypoint": int(oh.addressof_entrypoint),
+            "base_of_code": int(oh.baseof_code),
+            "imagebase": int(oh.imagebase),
+            "section_alignment": int(oh.section_alignment),
+            "file_alignment": int(oh.file_alignment),
+            "major_os_version": int(oh.major_operating_system_version),
+            "minor_os_version": int(oh.minor_operating_system_version),
+            "major_image_version": int(oh.major_image_version),
+            "minor_image_version": int(oh.minor_image_version),
+            "major_subsystem_version": int(oh.major_subsystem_version),
+            "minor_subsystem_version": int(oh.minor_subsystem_version),
+            "win32_version_value": int(oh.win32_version_value),
+            "sizeof_image": int(oh.sizeof_image),
+            "sizeof_headers": int(oh.sizeof_headers),
+            "checksum": int(oh.checksum),
+            "subsystem": int(oh.subsystem),
+            "dll_characteristics": int(oh.dll_characteristics),
+            "sizeof_stack_reserve": int(oh.sizeof_stack_reserve),
+            "sizeof_stack_commit": int(oh.sizeof_stack_commit),
+            "sizeof_heap_reserve": int(oh.sizeof_heap_reserve),
+            "sizeof_heap_commit": int(oh.sizeof_heap_commit),
+            "loader_flags": int(oh.loader_flags),
+            "numberof_rva_and_size": int(oh.numberof_rva_and_size),
+        }
 
-    # Data directories ----------------------------------------------------
-    directories: List[Dict[str, int]] = []
-    for dd in oh.data_directories:
-        directories.append({"rva": int(dd.rva), "size": int(dd.size)})
-    features["data_directories"] = directories
-
-    # Sections ------------------------------------------------------------
+        # Data directories
+        directories: List[Dict[str, int]] = []
+        # Check if data_directories attribute exists, otherwise try alternative access
+        if hasattr(oh, 'data_directories'):
+            data_dirs = oh.data_directories
+        else:
+            # Try to access data directories through the binary object
+            data_dirs = getattr(binary, 'data_directories', [])
+        
+        for dd in data_dirs:
+            directories.append({"rva": int(dd.rva), "size": int(dd.size)})
+        features["data_directories"] = directories
+    else:
+        features["optional_header"] = {}
+        features["data_directories"] = []
+    # Sections
     features["sections"] = _section_features(binary)
 
-    # Imports / Exports / Resources --------------------------------------
+    # Imports / Exports / Resources
     features["imports"] = _imports_features(binary)
     features["exports"] = _exports_features(binary)
     features["resources"] = _resources_features(binary)
@@ -184,13 +194,7 @@ def extract_from_directory(
         progress_callback=None,
         text_callback=None,
 ) -> Path:
-    """Extract features for each PE file in ``folder``.
 
-    The features are written as JSON lines to ``save_path`` and the resulting
-    file path is returned.  Progress can be reported through
-    ``progress_callback`` and ``text_callback`` which follow the UI's
-    expectations.
-    """
     folder_path = Path(folder)
     if folder_path.is_file():
         folder_path = folder_path.parent

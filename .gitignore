@@ -1,4 +1,5 @@
 data/quarantine
 data/raw
 tests/
-docs/
+.idea
+/docs
