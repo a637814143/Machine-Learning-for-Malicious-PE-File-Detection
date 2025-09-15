@@ -26,6 +26,8 @@ class Worker(QtCore.QThread):
 
         def progress(value: int):
             if not self._stopped:
+                # 确保进度值在有效范围内
+                value = max(0, min(100, value))
                 self.progress_signal.emit(value)
 
         def text(msg: str):

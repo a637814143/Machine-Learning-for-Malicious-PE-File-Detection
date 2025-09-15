@@ -305,6 +305,10 @@ class MachineLearningPEUI(QtWidgets.QDialog):
             self._append_result_text("请选择输入文件")
             return
 
+        # 重置对应任务的进度条
+        if task_name in self.progressBars:
+            self.progressBars[task_name].setValue(0)
+
         worker = Worker(task_name, params)
         self.workers[task_name] = worker
 

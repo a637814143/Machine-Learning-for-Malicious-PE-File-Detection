@@ -12,6 +12,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Dict, Iterable, List
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
 
 import numpy as np
 
@@ -192,6 +194,7 @@ def vectorize_feature_file(
     save_path: str,
     progress_callback=None,
     text_callback=None,
+    max_workers: int = None,
 ) -> None:
     """Vectorise features stored in ``json_path`` and save to ``save_path``.
 
@@ -210,14 +213,68 @@ def vectorize_feature_file(
     if text_callback is None:
         text_callback = lambda x: None
 
-    vectors = []
-    for idx, line in enumerate(lines, 1):
+    # 确定线程数
+    if max_workers is None:
+        import os
+        cpu_count = os.cpu_count() or 4
+        max_workers = min(total, cpu_count, 8)
+    
+    text_callback(f"开始向量化 {total} 个特征，使用 {max_workers} 个线程")
+    
+    def process_line(line_data):
+        """处理单行数据的向量化"""
+        idx, line = line_data
         record = json.loads(line)
         features = record.get("features", {})
-        vec = _vectorize_entry(features)
-        vectors.append(vec)
-        progress_callback(int(idx / total * 100))
-        text_callback(f"已转换 {record.get('path', idx)}")
+        
+        try:
+            vec = _vectorize_entry(features)
+            return idx, vec, record.get('path', f'line_{idx}'), True, None
+        except Exception as e:
+            return idx, None, record.get('path', f'line_{idx}'), False, str(e)
+    
+    # 准备数据
+    line_data = [(i, line) for i, line in enumerate(lines)]
+    
+    # 使用线程池并行处理
+    vectors = [None] * total  # 预分配数组以保持顺序
+    successful = 0
+    failed = 0
+    
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # 提交所有任务
+        future_to_idx = {
+            executor.submit(process_line, data): data[0] 
+            for data in line_data
+        }
+        
+        # 收集结果
+        for future in as_completed(future_to_idx):
+            idx = future_to_idx[future]
+            try:
+                result_idx, vec, path, success, error = future.result()
+                
+                if success:
+                    vectors[result_idx] = vec
+                    successful += 1
+                    text_callback(f"已转换 {path}")
+                else:
+                    vectors[result_idx] = np.zeros(VECTOR_SIZE, dtype=np.float32)
+                    failed += 1
+                    text_callback(f"转换失败 {path}: {error}")
+                
+                # 更新进度
+                progress_callback(int((successful + failed) / total * 100))
+                
+            except Exception as e:
+                vectors[idx] = np.zeros(VECTOR_SIZE, dtype=np.float32)
+                failed += 1
+                text_callback(f"处理异常 line_{idx}: {str(e)}")
+                progress_callback(int((successful + failed) / total * 100))
 
+    # 移除None值并转换为numpy数组
+    vectors = [v for v in vectors if v is not None]
     array = np.vstack(vectors) if vectors else np.empty((0, VECTOR_SIZE), dtype=np.float32)
     np.save(save_path, array)
+    
+    text_callback(f"向量化完成: 成功 {successful} 个，失败 {failed} 个")

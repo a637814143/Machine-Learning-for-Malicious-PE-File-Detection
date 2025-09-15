@@ -78,23 +78,31 @@ def _placeholder_factory(task_name: str):
 
 @register_task("提取特征")
 def extract_features_task(args, progress, text):
-    """Extract raw features for all PE files in a folder."""
+    """Extract raw features for all PE files in a folder with multithreading."""
     if len(args) < 2:
         text("需要提供输入文件夹和保存路径")
         return
     src, dst = args[0], args[1]
-    extract_from_directory(src, dst, progress_callback=progress, text_callback=text)
+    
+    # 支持自定义线程数（第三个参数）
+    max_workers = int(args[2]) if len(args) > 2 and args[2].isdigit() else None
+    
+    extract_from_directory(src, dst, progress_callback=progress, text_callback=text, max_workers=max_workers)
     text("特征提取完成")
 
 
 @register_task("特征转换")
 def feature_vector_task(args, progress, text):
-    """Vectorise previously extracted features."""
+    """Vectorise previously extracted features with multithreading."""
     if len(args) < 2:
         text("需要提供特征文件路径和保存路径")
         return
     src, dst = args[0], args[1]
-    vectorize_feature_file(src, dst, progress_callback=progress, text_callback=text)
+    
+    # 支持自定义线程数（第三个参数）
+    max_workers = int(args[2]) if len(args) > 2 and args[2].isdigit() else None
+    
+    vectorize_feature_file(src, dst, progress_callback=progress, text_callback=text, max_workers=max_workers)
     text("特征向量化完成")
 
 
