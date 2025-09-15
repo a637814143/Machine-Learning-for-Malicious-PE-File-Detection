@@ -176,7 +176,7 @@ def extract_features(pe_path: Union[str, Path], progress_callback=None) -> Dict[
     if progress_callback is None:
         progress_callback = lambda x: None
     
-    total_steps = 8  # 总共的处理步骤数
+    total_steps = 9  # 总共的处理步骤数
     current_step = 0
 
     # Byte histograms
@@ -335,7 +335,8 @@ def _process_single_file(file_path: Path, progress_tracker: ThreadSafeProgressTr
         # 实时写入失败结果
         if file_writer:
             file_writer.write_result(result, file_index)
-            
+
+        print(result)
         return result
 
 

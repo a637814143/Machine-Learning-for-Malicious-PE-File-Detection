@@ -253,12 +253,12 @@ class MachineLearningPEUI(QtWidgets.QDialog):
         
         # 线程数配置
         self.threadCountLabel = QtWidgets.QLabel("线程数:", self)
-        self.threadCountLabel.setGeometry(890, 760, 60, 21)
-        
+        self.threadCountLabel.setGeometry(1245, 810, 60, 21)
+
         self.threadCountSpinBox = QtWidgets.QSpinBox(self)
-        self.threadCountSpinBox.setGeometry(950, 760, 80, 21)
+        self.threadCountSpinBox.setGeometry(1305, 810, 80, 21)
         self.threadCountSpinBox.setMinimum(1)
-        self.threadCountSpinBox.setMaximum(16)
+        self.threadCountSpinBox.setMaximum(100)
         self.threadCountSpinBox.setValue(4)  # 默认4个线程
         self.threadCountSpinBox.setToolTip("设置特征提取使用的线程数（1-16）")
 
