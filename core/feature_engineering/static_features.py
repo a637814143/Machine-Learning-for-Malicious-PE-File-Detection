@@ -43,6 +43,55 @@ class ThreadSafeProgressTracker:
             self.text_callback(f"已完成 {file_name} ({self.completed_files}/{self.total_files})")
 
 
+class ThreadSafeFileWriter:
+    """线程安全的实时文件写入器"""
+    
+    def __init__(self, file_path: Path, text_callback=None):
+        self.file_path = file_path
+        self.text_callback = text_callback or (lambda x: None)
+        self.lock = threading.Lock()
+        self.written_count = 0
+        
+        # 打开文件进行追加写入
+        self.file_handle = open(file_path, 'w', encoding='utf-8', buffering=1)  # 行缓冲
+        
+    def write_result(self, result: Dict, file_index: int = None):
+        """写入单个结果"""
+        with self.lock:
+            try:
+                if result["success"]:
+                    data = {
+                        "path": result["path"],
+                        "features": result["features"]
+                    }
+                else:
+                    data = {
+                        "path": result["path"],
+                        "features": {}
+                    }
+                
+                self.file_handle.write(json.dumps(data) + "\n")
+                self.file_handle.flush()  # 强制刷新缓冲区
+                self.written_count += 1
+                
+                if file_index is not None:
+                    self.text_callback(f"已写入第 {file_index} 个文件: {Path(result['path']).name}")
+                
+            except Exception as e:
+                self.text_callback(f"写入失败: {str(e)}")
+    
+    def close(self):
+        """关闭文件"""
+        with self.lock:
+            if hasattr(self, 'file_handle') and self.file_handle:
+                self.file_handle.close()
+                self.text_callback(f"文件写入完成，共写入 {self.written_count} 条记录")
+    
+    def __del__(self):
+        """析构函数确保文件被关闭"""
+        self.close()
+
+
 def _section_features(binary) -> List[Dict[str, object]]:
     sections = []
     for sec in binary.sections:
@@ -249,7 +298,8 @@ def extract_features(pe_path: Union[str, Path], progress_callback=None) -> Dict[
     return features
 
 
-def _process_single_file(file_path: Path, progress_tracker: ThreadSafeProgressTracker) -> Dict:
+def _process_single_file(file_path: Path, progress_tracker: ThreadSafeProgressTracker, 
+                        file_writer: ThreadSafeFileWriter = None, file_index: int = None) -> Dict:
     """处理单个文件的特征提取（用于多线程）"""
     try:
         # 创建文件级的进度回调
@@ -259,22 +309,34 @@ def _process_single_file(file_path: Path, progress_tracker: ThreadSafeProgressTr
         # 提取特征
         features = extract_features(file_path, progress_callback=file_progress_callback)
         
-        # 标记文件完成
-        progress_tracker.complete_file(file_path.name)
-        
-        return {
+        result = {
             "path": str(file_path),
             "features": features,
             "success": True
         }
+        
+        # 实时写入结果
+        if file_writer:
+            file_writer.write_result(result, file_index)
+        
+        # 标记文件完成
+        progress_tracker.complete_file(file_path.name)
+        
+        return result
     except Exception as e:
         progress_tracker.text_callback(f"处理失败 {file_path.name}: {str(e)}")
-        return {
+        result = {
             "path": str(file_path),
             "features": {},
             "success": False,
             "error": str(e)
         }
+        
+        # 实时写入失败结果
+        if file_writer:
+            file_writer.write_result(result, file_index)
+            
+        return result
 
 
 def extract_from_directory(
@@ -283,6 +345,7 @@ def extract_from_directory(
         progress_callback=None,
         text_callback=None,
         max_workers: int = None,
+        realtime_write: bool = True,
 ) -> Path:
 
     folder_path = Path(folder)
@@ -316,62 +379,90 @@ def extract_from_directory(
         # 智能选择线程数：基于CPU核心数和文件数量
         import os
         cpu_count = os.cpu_count() or 4
-        # 使用CPU核心数，但不超过文件数量和8个线程
-        max_workers = min(total, cpu_count, 8)
+        # 使用CPU核心数，但不超过文件数量和12个线程（提高默认值）
+        max_workers = min(total, cpu_count, 12)
     
-    text_callback(f"开始处理 {total} 个文件，使用 {max_workers} 个线程")
+    write_mode = "实时写入" if realtime_write else "批量写入"
+    text_callback(f"开始处理 {total} 个文件，使用 {max_workers} 个线程，{write_mode}模式")
     
     # 创建线程安全的进度跟踪器
     progress_tracker = ThreadSafeProgressTracker(total, progress_callback, text_callback)
     
-    # 使用线程池并行处理文件
-    results = []
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # 提交所有任务
-        future_to_file = {
-            executor.submit(_process_single_file, file_path, progress_tracker): file_path
-            for file_path in files
-        }
+    # 创建实时文件写入器
+    file_writer = None
+    if realtime_write:
+        file_writer = ThreadSafeFileWriter(save_file, text_callback)
+    
+    try:
+        # 使用线程池并行处理文件
+        results = []
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # 为每个文件分配索引
+            file_to_index = {str(f): i for i, f in enumerate(files, 1)}
+            
+            # 提交所有任务
+            future_to_file = {
+                executor.submit(
+                    _process_single_file, 
+                    file_path, 
+                    progress_tracker, 
+                    file_writer,
+                    file_to_index[str(file_path)]
+                ): file_path
+                for file_path in files
+            }
+            
+            # 收集结果（用于统计）
+            for future in as_completed(future_to_file):
+                file_path = future_to_file[future]
+                try:
+                    result = future.result()
+                    results.append(result)
+                except Exception as e:
+                    text_callback(f"文件 {file_path} 处理异常: {str(e)}")
+                    result = {
+                        "path": str(file_path),
+                        "features": {},
+                        "success": False,
+                        "error": str(e)
+                    }
+                    results.append(result)
+                    
+                    # 实时写入异常结果
+                    if file_writer:
+                        file_writer.write_result(result, file_to_index[str(file_path)])
         
-        # 收集结果
-        for future in as_completed(future_to_file):
-            file_path = future_to_file[future]
-            try:
-                result = future.result()
-                results.append(result)
-            except Exception as e:
-                text_callback(f"文件 {file_path} 处理异常: {str(e)}")
-                results.append({
-                    "path": str(file_path),
-                    "features": {},
-                    "success": False,
-                    "error": str(e)
-                })
-    
-    # 按原始顺序排序结果（保持文件顺序）
-    file_path_to_result = {result["path"]: result for result in results}
-    sorted_results = [file_path_to_result[str(f)] for f in files]
-    
-    # 写入结果到文件
-    with open(save_file, "w", encoding="utf-8") as f:
-        for result in sorted_results:
-            if result["success"]:
-                f.write(json.dumps({
-                    "path": result["path"],
-                    "features": result["features"]
-                }) + "\n")
-            else:
-                # 即使失败也记录，但特征为空
-                f.write(json.dumps({
-                    "path": result["path"],
-                    "features": {}
-                }) + "\n")
-    
-    # 统计成功和失败的文件数
-    successful = sum(1 for r in results if r["success"])
-    failed = len(results) - successful
-    
-    text_callback(f"特征提取完成: 成功 {successful} 个，失败 {failed} 个")
-    progress_callback(100)
+        # 如果不是实时写入模式，需要批量写入
+        if not realtime_write:
+            text_callback("开始批量写入结果...")
+            with open(save_file, "w", encoding="utf-8") as f:
+                # 按原始顺序排序结果（保持文件顺序）
+                file_path_to_result = {result["path"]: result for result in results}
+                sorted_results = [file_path_to_result[str(f)] for f in files]
+                
+                for result in sorted_results:
+                    if result["success"]:
+                        f.write(json.dumps({
+                            "path": result["path"],
+                            "features": result["features"]
+                        }) + "\n")
+                    else:
+                        # 即使失败也记录，但特征为空
+                        f.write(json.dumps({
+                            "path": result["path"],
+                            "features": {}
+                        }) + "\n")
+        
+        # 统计成功和失败的文件数
+        successful = sum(1 for r in results if r["success"])
+        failed = len(results) - successful
+        
+        text_callback(f"特征提取完成: 成功 {successful} 个，失败 {failed} 个")
+        progress_callback(100)
+        
+    finally:
+        # 确保文件写入器被正确关闭
+        if file_writer:
+            file_writer.close()
     
     return save_file

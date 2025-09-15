@@ -78,7 +78,7 @@ def _placeholder_factory(task_name: str):
 
 @register_task("提取特征")
 def extract_features_task(args, progress, text):
-    """Extract raw features for all PE files in a folder with multithreading."""
+    """Extract raw features for all PE files in a folder with multithreading and real-time writing."""
     if len(args) < 2:
         text("需要提供输入文件夹和保存路径")
         return
@@ -87,13 +87,20 @@ def extract_features_task(args, progress, text):
     # 支持自定义线程数（第三个参数）
     max_workers = int(args[2]) if len(args) > 2 and args[2].isdigit() else None
     
-    extract_from_directory(src, dst, progress_callback=progress, text_callback=text, max_workers=max_workers)
+    # 支持实时写入控制（第四个参数）
+    realtime_write = True
+    if len(args) > 3:
+        if args[3].lower() in ['false', '0', 'no', 'batch']:
+            realtime_write = False
+    
+    extract_from_directory(src, dst, progress_callback=progress, text_callback=text, 
+                          max_workers=max_workers, realtime_write=realtime_write)
     text("特征提取完成")
 
 
 @register_task("特征转换")
 def feature_vector_task(args, progress, text):
-    """Vectorise previously extracted features with multithreading."""
+    """Vectorise previously extracted features with multithreading and real-time writing."""
     if len(args) < 2:
         text("需要提供特征文件路径和保存路径")
         return
@@ -102,7 +109,14 @@ def feature_vector_task(args, progress, text):
     # 支持自定义线程数（第三个参数）
     max_workers = int(args[2]) if len(args) > 2 and args[2].isdigit() else None
     
-    vectorize_feature_file(src, dst, progress_callback=progress, text_callback=text, max_workers=max_workers)
+    # 支持实时写入控制（第四个参数）
+    realtime_write = True
+    if len(args) > 3:
+        if args[3].lower() in ['false', '0', 'no', 'batch']:
+            realtime_write = False
+    
+    vectorize_feature_file(src, dst, progress_callback=progress, text_callback=text, 
+                          max_workers=max_workers, realtime_write=realtime_write)
     text("特征向量化完成")
 
 
