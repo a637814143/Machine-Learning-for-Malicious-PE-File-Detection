@@ -250,17 +250,6 @@ class MachineLearningPEUI(QtWidgets.QDialog):
         self.modelComboBox = QtWidgets.QComboBox(self)
         self.modelComboBox.setGeometry(1250, 740, 131, 21)
         self.modelComboBox.addItems(["随机森林", "SNN", "深度树"])
-        
-        # 线程数配置
-        self.threadCountLabel = QtWidgets.QLabel("线程数:", self)
-        self.threadCountLabel.setGeometry(1245, 810, 60, 21)
-
-        self.threadCountSpinBox = QtWidgets.QSpinBox(self)
-        self.threadCountSpinBox.setGeometry(1305, 810, 80, 21)
-        self.threadCountSpinBox.setMinimum(1)
-        self.threadCountSpinBox.setMaximum(100)
-        self.threadCountSpinBox.setValue(4)  # 默认4个线程
-        # self.threadCountSpinBox.setToolTip("设置特征提取使用的线程数（1-100）")
 
     def _setup_middle_labels(self):
         """设置中间标签"""
@@ -307,24 +296,13 @@ class MachineLearningPEUI(QtWidgets.QDialog):
             params.append(self.inputLineEdit.text())
         if self.useOutputCheckBox.isChecked():
             params.append(self.outputLineEdit.text())
-        
-        # 添加线程数参数
-        thread_count = self.threadCountSpinBox.value()
-        params.append(str(thread_count))
-        
         return tuple(params)
 
     def start_task(self, task_name: str):
         """启动任务"""
         params = self._get_params()
-        
-        # 检查必要参数
-        if task_name == "文件信息" and not self.useInputCheckBox.isChecked():
+        if not params and task_name == "文件信息":
             self._append_result_text("请选择输入文件")
-            return
-        
-        if task_name in ["提取特征", "特征转换"] and not (self.useInputCheckBox.isChecked() and self.useOutputCheckBox.isChecked()):
-            self._append_result_text("请选择输入和输出路径")
             return
 
         # 重置对应任务的进度条
@@ -340,9 +318,7 @@ class MachineLearningPEUI(QtWidgets.QDialog):
         # 如果是文件信息任务，区分HTML和普通文本
         worker.text_signal.connect(self._append_result_text_or_html)
 
-        # 显示启动信息
-        thread_info = f"（线程数: {self.threadCountSpinBox.value()}）" if task_name in ["提取特征", "特征转换"] else ""
-        self._append_result_text(f"启动任务: {task_name} {thread_info}")
+        #self._append_result_text(f"任务启动: {task_name} 参数: {params}")
         worker.start()
 
     def _append_result_text_or_html(self, txt: str):
