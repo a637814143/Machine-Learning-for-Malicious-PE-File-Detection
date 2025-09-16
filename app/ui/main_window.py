@@ -260,7 +260,7 @@ class MachineLearningPEUI(QtWidgets.QDialog):
         self.threadCountSpinBox.setMinimum(1)
         self.threadCountSpinBox.setMaximum(100)
         self.threadCountSpinBox.setValue(4)  # 默认4个线程
-        self.threadCountSpinBox.setToolTip("设置特征提取使用的线程数（1-16）")
+        # self.threadCountSpinBox.setToolTip("设置特征提取使用的线程数（1-100）")
 
     def _setup_middle_labels(self):
         """设置中间标签"""
