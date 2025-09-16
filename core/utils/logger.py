@@ -2,7 +2,7 @@
 
 from pathlib import Path
 from scripts.ROOT_PATH import ROOT
-from scripts.FILE_NAME import GET_TIME
+
 
 LOG_PATH = ROOT / "docs" / "log.txt"
 
@@ -20,14 +20,3 @@ def set_log(log_info: str) -> bool:
     return True
 
 
-def LOG(info: str, level: int = 0) -> None:
-    """
-    省几个字符，懒得加GET_TIME()
-    :param level: 日志等级这一块
-    :param info: 日志信息这一块
-    :return: 啥也不返回这一块
-    """
-    level_list = ['INFO', 'WARING', 'ERROR']
-    info = level_list[level] + info
-    with open(LOG_PATH, 'a+') as file:
-        file.write(GET_TIME(info) + '\n')

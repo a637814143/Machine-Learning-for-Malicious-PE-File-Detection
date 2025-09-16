@@ -114,19 +114,10 @@ def feature_vector_task(args, progress, text):
     if len(args) > 3:
         if args[3].lower() in ['false', '0', 'no', 'batch']:
             realtime_write = False
-
-    try:
-        output_file = vectorize_feature_file(
-            src,
-            dst,
-            progress_callback=progress,
-            text_callback=text,
-            max_workers=max_workers,
-            realtime_write=realtime_write,
-        )
-        text(f"特征向量化完成，保存至 {output_file}")
-    except Exception as exc:  # pragma: no cover - runtime feedback
-        text(f"特征向量化失败: {exc}")
+    
+    vectorize_feature_file(src, dst, progress_callback=progress, text_callback=text, 
+                          max_workers=max_workers, realtime_write=realtime_write)
+    text("特征向量化完成")
 
 
 # Register placeholders for remaining buttons -------------------------------

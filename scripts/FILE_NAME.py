@@ -12,8 +12,8 @@ def NAME_RULE() -> str:
     """
     stack = inspect.stack()
     name = Path(stack[1].filename).stem
-    time = datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
-    final_name = name + time
+    time = datetime.now().strftime("%Y.%m.%d_%H.%M.%S")
+    final_name = name + '~' + time
 
     return final_name
 
@@ -23,6 +23,6 @@ def GET_TIME(ori_str: str) -> str:
     获取当前时间，生成带有时间戳的日志
     :return: 时间xxxx/xx/xx_xx:xx:xx
     """
-    time = datetime.now().strftime("[%Y-%m-%d %H:%M:%S] ")
+    time = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
 
-    return time + ori_str
+    return time + ' ' + ori_str
