@@ -61,12 +61,14 @@ class ThreadSafeFileWriter:
                 if result["success"]:
                     data = {
                         "path": result["path"],
-                        "features": result["features"]
+                        "features": result["features"],
+                        "label": result.get("label")
                     }
                 else:
                     data = {
                         "path": result["path"],
-                        "features": {}
+                        "features": {},
+                        "label": result.get("label")
                     }
 
                 self.file_handle.write(json.dumps(data) + "\n")
@@ -452,13 +454,14 @@ def extract_from_directory(
                         f.write(json.dumps({
                             "path": result["path"],
                             "features": result["features"],
-                            "label": result["label"]
+                            "label": result.get("label")
                         }) + "\n")
                     else:
                         # 即使失败也记录，但特征为空
                         f.write(json.dumps({
                             "path": result["path"],
-                            "features": {}
+                            "features": {},
+                            "label": result.get("label")
                         }) + "\n")
 
         # 统计成功和失败的文件数
