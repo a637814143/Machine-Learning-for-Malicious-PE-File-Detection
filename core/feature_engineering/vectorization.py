@@ -10,12 +10,14 @@ project requirements.
 from __future__ import annotations
 
 import json
-from typing import Dict, Iterable, List
+from typing import Dict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 from pathlib import Path
 
 import numpy as np
+
+from scripts.FILE_NAME import NAME_RULE
 
 from .feature_utils import stable_hash
 
@@ -232,6 +234,22 @@ def _vectorize_entry(features: Dict[str, object]) -> np.ndarray:
     return vec
 
 
+def _prepare_output_path(target: Path) -> Path:
+    """Return the final file path for saving vectorised features."""
+
+    if target.suffix.lower() == ".npy":
+        target.parent.mkdir(parents=True, exist_ok=True)
+        return target
+
+    if target.exists() and target.is_file():
+        resolved = target.with_suffix(".npy")
+        resolved.parent.mkdir(parents=True, exist_ok=True)
+        return resolved
+
+    target.mkdir(parents=True, exist_ok=True)
+    return target / f"{NAME_RULE()}.npy"
+
+
 def vectorize_feature_file(
     json_path: str,
     save_path: str,
@@ -239,30 +257,45 @@ def vectorize_feature_file(
     text_callback=None,
     max_workers: int = None,
     realtime_write: bool = True,
-) -> None:
+) -> Path:
     """Vectorise features stored in ``json_path`` and save to ``save_path``.
 
     ``json_path`` should contain one JSON object per line with a ``features``
     field as produced by :func:`static_features.extract_from_directory`.
-    ``save_path`` will be written in NumPy ``.npy`` format containing an
-    array of shape ``(num_files, VECTOR_SIZE)``.
+    ``save_path`` may point to a directory or to a target ``.npy`` file.  The
+    returned :class:`pathlib.Path` specifies the actual file written to disk.
     """
-    print(save_path)
-    file_path = Path(json_path)
-    lines = file_path.read_text(encoding="utf-8").splitlines()
 
-    total = len(lines)
+    file_path = Path(json_path)
+    if not file_path.exists():
+        raise FileNotFoundError(f"特征文件不存在: {json_path}")
+
+    output_path = _prepare_output_path(Path(save_path))
+
     if progress_callback is None:
         progress_callback = lambda x: None
     if text_callback is None:
         text_callback = lambda x: None
 
+    text_callback(f"读取特征文件: {file_path}")
+    text_callback(f"向量结果将保存至: {output_path}")
+
+    lines = file_path.read_text(encoding="utf-8").splitlines()
+    total = len(lines)
+
+    if total == 0:
+        text_callback("特征文件为空，已生成空向量数组")
+        np.save(output_path, np.empty((0, VECTOR_SIZE), dtype=np.float32))
+        progress_callback(100)
+        return output_path
+
     # 确定线程数
     if max_workers is None:
         import os
+
         cpu_count = os.cpu_count() or 4
-        max_workers = min(total, cpu_count, 12)  # 提高默认线程数上限
-    
+        max_workers = min(total, cpu_count, 12)
+
     write_mode = "实时写入" if realtime_write else "批量写入"
     text_callback(f"开始向量化 {total} 个特征，使用 {max_workers} 个线程，{write_mode}模式")
     
@@ -292,7 +325,7 @@ def vectorize_feature_file(
     # 创建实时向量写入器
     vector_writer = None
     if realtime_write:
-        vector_writer = ThreadSafeVectorWriter(save_path, VECTOR_SIZE, text_callback)
+        vector_writer = ThreadSafeVectorWriter(str(output_path), VECTOR_SIZE, text_callback)
     
     # 准备数据
     line_data = [(i, line) for i, line in enumerate(lines)]
@@ -343,13 +376,15 @@ def vectorize_feature_file(
             # 移除None值并转换为numpy数组
             vectors = [v for v in vectors if v is not None]
             array = np.vstack(vectors) if vectors else np.empty((0, VECTOR_SIZE), dtype=np.float32)
-            np.save(save_path, array)
+            np.save(output_path, array)
         else:
             # 实时写入模式，将所有向量写入文件
             vector_writer.write_to_file()
-        
+
         text_callback(f"向量化完成: 成功 {successful} 个，失败 {failed} 个")
-        
+        progress_callback(100)
+        return output_path
+
     except Exception as e:
         text_callback(f"向量化过程异常: {str(e)}")
         raise
