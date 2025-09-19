@@ -379,9 +379,9 @@ def extract_from_directory(
     if max_workers is None:
         # 智能选择线程数：基于CPU核心数和文件数量
         import os
-        cpu_count = os.cpu_count() or 4
-        # 使用CPU核心数，但不超过文件数量和12个线程（提高默认值）
-        max_workers = min(total, cpu_count, 12)
+        cpu_count = os.cpu_count() or 8
+        # 使用CPU核心数，但不超过文件数量和100个线程（提高默认值）
+        max_workers = min(total, cpu_count, 100)
     
     write_mode = "实时写入" if realtime_write else "批量写入"
     text_callback(f"开始处理 {total} 个文件，使用 {max_workers} 个线程，{write_mode}模式")
