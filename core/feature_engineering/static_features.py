@@ -102,6 +102,8 @@ class ThreadSafeFileWriter:
 
 
 def extract_features(pe_path: Union[str, Path], progress_callback=None) -> Dict[str, object]:
+    """提取与 EMBER 数据集结构对齐的静态特征。"""
+
     pe_path = Path(pe_path)
     features: Dict[str, object] = {}
 
@@ -111,12 +113,44 @@ def extract_features(pe_path: Union[str, Path], progress_callback=None) -> Dict[
     total_steps = 7
     current_step = 0
 
-    # Byte histograms -----------------------------------------------------
-    features["byte_hist"] = ByteHistogram(str(pe_path)).tolist()
+    # 元信息：哈希 / 标签 --------------------------------------------------
+    try:
+        features["sha256"] = Hash_sha256(str(pe_path))
+        features["md5"] = Hash_md5(str(pe_path))
+    except Exception:
+        features["sha256"] = ""
+        features["md5"] = ""
+
+    try:
+        features["appeared"] = Appeared()
+    except Exception:
+        features["appeared"] = ""
+
+    try:
+        features["label"] = Label(str(pe_path))
+    except Exception:
+        features["label"] = 0
+
+    try:
+        features["avclass"] = Avclass(str(pe_path))
+    except Exception:
+        features["avclass"] = ""
+
     current_step += 1
     progress_callback(int(current_step / total_steps * 100))
 
-    features["byte_entropy_hist"] = ByteEntropyHistogram(str(pe_path)).tolist()
+    # Byte histograms -----------------------------------------------------
+    try:
+        features["histogram"] = [int(v) for v in ByteHistogram(str(pe_path)).tolist()]
+    except Exception:
+        features["histogram"] = [0] * 256
+    current_step += 1
+    progress_callback(int(current_step / total_steps * 100))
+
+    try:
+        features["byteentropy"] = [int(v) for v in ByteEntropyHistogram(str(pe_path)).tolist()]
+    except Exception:
+        features["byteentropy"] = [0] * 256
     current_step += 1
     progress_callback(int(current_step / total_steps * 100))
 
@@ -136,15 +170,20 @@ def extract_features(pe_path: Union[str, Path], progress_callback=None) -> Dict[
     current_step += 1
     progress_callback(int(current_step / total_steps * 100))
 
-    # Header / optional header -------------------------------------------
+    # Header --------------------------------------------------------------
     header_data: Dict[str, Dict] = {}
     try:
         header_data = Header(str(pe_path))
     except Exception:
         header_data = {}
 
-    features["header"] = header_data.get("coff", {})
-    features["optional_header"] = header_data.get("optional", {})
+    if isinstance(header_data, dict):
+        features["header"] = {
+            "coff": header_data.get("coff", {}),
+            "optional": header_data.get("optional", {}),
+        }
+    else:
+        features["header"] = {"coff": {}, "optional": {}}
     current_step += 1
     progress_callback(int(current_step / total_steps * 100))
 
@@ -154,18 +193,21 @@ def extract_features(pe_path: Union[str, Path], progress_callback=None) -> Dict[
     except Exception:
         section_data = {}
 
-    section_info = section_data.get("section", {}) if isinstance(section_data, dict) else {}
-    features["sections"] = section_info.get("sections", [])
-    features["section_entry"] = section_info.get("entry", "")
-    features["imports"] = section_data.get("imports", {}) if isinstance(section_data, dict) else {}
-    features["exports"] = {"functions": section_data.get("exports", [])} if isinstance(section_data, dict) else {
-        "functions": []}
-    features["data_directories"] = section_data.get("datadirectories", []) if isinstance(section_data, dict) else []
-    current_step += 1
-    progress_callback(int(current_step / total_steps * 100))
+    if isinstance(section_data, dict):
+        section_info = section_data.get("section", {})
+        features["section"] = {
+            "entry": section_info.get("entry", ""),
+            "sections": section_info.get("sections", []),
+        }
+        features["imports"] = section_data.get("imports", {})
+        features["exports"] = section_data.get("exports", [])
+        features["datadirectories"] = section_data.get("datadirectories", [])
+    else:
+        features["section"] = {"entry": "", "sections": []}
+        features["imports"] = {}
+        features["exports"] = []
+        features["datadirectories"] = []
 
-    # Resources placeholder ----------------------------------------------
-    features.setdefault("resources", [])
     current_step += 1
     progress_callback(int(current_step / total_steps * 100))
 
