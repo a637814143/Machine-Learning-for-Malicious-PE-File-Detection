@@ -69,15 +69,9 @@ class ThreadSafeFileWriter:
         with self.lock:
             try:
                 if result["success"]:
-                    data = {
-                        "path": result["path"],
-                        "features": result["features"]
-                    }
+                    data = result["features"]
                 else:
-                    data = {
-                        "path": result["path"],
-                        "features": {}
-                    }
+                    data = {"features": {}}
 
                 self.file_handle.write(json.dumps(data) + "\n")
                 self.file_handle.flush()  # 强制刷新缓冲区
@@ -358,16 +352,11 @@ def extract_from_directory(
 
                 for result in sorted_results:
                     if result["success"]:
-                        f.write(json.dumps({
-                            "path": result["path"],
-                            "features": result["features"]
-                        }) + "\n")
+                        data = result["features"]
                     else:
-                        # 即使失败也记录，但特征为空
-                        f.write(json.dumps({
-                            "path": result["path"],
-                            "features": {}
-                        }) + "\n")
+                        data = {"features": {}}
+
+                    f.write(json.dumps(data) + "\n")
 
         # 统计成功和失败的文件数
         successful = sum(1 for r in results if r["success"])
