@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 import hashlib
-from typing import Iterable, Dict, List
+from typing import Iterable, Dict, List, Any
 from pathlib import Path
 import re
 import mmap
+
+import lief
 import numpy as np
 from .pe_parser import parse_pe
 
@@ -39,7 +41,13 @@ RE_REG = re.compile(
 )
 RE_MZ = re.compile(rb'MZ')
 
-
+#表信息
+_DATA_DIR_NAMES = [
+    "EXPORT_TABLE", "IMPORT_TABLE", "RESOURCE_TABLE", "EXCEPTION_TABLE",
+    "CERTIFICATE_TABLE", "BASE_RELOCATION_TABLE", "DEBUG", "ARCHITECTURE",
+    "GLOBAL_PTR", "TLS_TABLE", "LOAD_CONFIG_TABLE", "BOUND_IMPORT",
+    "IAT", "DELAY_IMPORT_DESCRIPTOR", "CLR_RUNTIME_HEADER"
+]
 def Hash_md5(file_path: str, size: int = 4 * 1024 * 1024) -> str:
     """
     分块取md5
@@ -310,34 +318,493 @@ def General(path: str) -> Dict:
     return out
 
 
-def stable_hash(value: str, n_buckets: int) -> int:
-    """Compute a stable hash for ``value`` within ``n_buckets``.
-
-    Python's builtin ``hash`` is salted per-process which would result in
-    inconsistent feature indices between runs.  For feature hashing we rely on
-    a deterministic hash derived from SHA-256.
-
-    Parameters
-    ----------
-    value:
-        Input string to hash.
-    n_buckets:
-        Size of the hashing space.
-
-    Returns
-    -------
-    int
-        Integer in the range ``[0, n_buckets)``.
+def Header(file_path: str) -> Dict:
+    """
+    提取 header.coff 与 header.optional（EMBER 风格）
+    :param file_path: PE 文件路径
+    :return: dict 对齐 EMBER 的 header 字段结构
     """
 
-    digest = hashlib.sha256(value.encode("utf-8")).digest()
-    return int.from_bytes(digest[:4], "little") % n_buckets
+    def _enum_name(val) -> str:
+        """尝试获取枚举的 name 属性或 str()，兼容性处理。"""
+        try:
+            return getattr(val, "name")
+        except Exception:
+            try:
+                return str(val)
+            except Exception:
+                return ""
+
+    def _characteristics_from_bitmask(bitmask: int, enum_cls) -> List[str]:
+        """
+        将 bitmask 展开为枚举名列表（兼容 LIEF 的枚举类）。
+        enum_cls: 枚举类（如 lief.PE.Header.Characteristics）
+        """
+        out = []
+        try:
+            for e in enum_cls:
+                try:
+                    if bitmask & int(e):
+                        name = getattr(e, "name", str(e))
+                        out.append(name)
+                except Exception:
+                    continue
+        except Exception:
+            # 如果传入的不是枚举类（兼容性）
+            pass
+        return out
+
+    def _dll_characteristics_names(opt_hdr) -> List[str]:
+        """
+        获取 DLL characteristics 的名列表，优先使用可能存在的 list 属性，
+        否则从位掩码展开。
+        """
+        # 1) 优先考虑 optional_header.dll_characteristics_list
+        dll_list = getattr(opt_hdr, "dll_characteristics_list", None)
+        if dll_list:
+            names = []
+            for e in dll_list:
+                try:
+                    names.append(getattr(e, "name", str(e)))
+                except Exception:
+                    names.append(str(e))
+            return names
+
+        # 2) 兼容: 有时存在 bitmask 属性 optional_header.dll_characteristics
+        bitmask = getattr(opt_hdr, "dll_characteristics", None)
+        if bitmask is not None:
+            # LIEF 的枚举类：lief.PE.DLL_CHARACTERISTICS
+            return _characteristics_from_bitmask(int(bitmask), getattr(lief.PE, "DLL_CHARACTERISTICS", getattr(lief.PE, "DllCharacteristics", None)))
+
+        # 3) 退化为空列表
+        return []
+    out = {
+        "coff": {
+            "timestamp": 0,
+            "machine": "",
+            "characteristics": []
+        },
+        "optional": {
+            "subsystem": "",
+            "dll_characteristics": [],
+            "magic": "",
+            "major_image_version": 0,
+            "minor_image_version": 0,
+            "major_linker_version": 0,
+            "minor_linker_version": 0,
+            "major_operating_system_version": 0,
+            "minor_operating_system_version": 0,
+            "major_subsystem_version": 0,
+            "minor_subsystem_version": 0,
+            "sizeof_code": 0,
+            "sizeof_headers": 0,
+            "sizeof_heap_commit": 0
+        }
+    }
+
+    bin = parse_pe(file_path)
+    if bin is None:
+        return out
+
+    # ------- COFF header -------
+    try:
+        hdr = bin.header  # lief.PE.Header
+    except Exception:
+        hdr = None
+
+    if hdr is not None:
+        # timestamp
+        try:
+            ts = int(getattr(hdr, "time_date_stamp", 0))
+            out["coff"]["timestamp"] = ts
+        except Exception:
+            pass
+
+        # machine
+        try:
+            m = getattr(hdr, "machine", None)
+            if m is not None:
+                out["coff"]["machine"] = _enum_name(m)
+            else:
+                # 兼容：可能有 numeric machine value
+                mv = getattr(hdr, "machine_type", None) or getattr(hdr, "machine_value", None)
+                if mv is not None:
+                    out["coff"]["machine"] = str(mv)
+        except Exception:
+            pass
+
+        # characteristics: 优先使用 characteristics_list，否则展开 bitmask
+        try:
+            chars_list = getattr(hdr, "characteristics_list", None)
+            if chars_list:
+                out["coff"]["characteristics"] = [ _enum_name(c) for c in chars_list ]
+            else:
+                # 用 bitmask 展开（hdr.characteristics）
+                bitmask = int(getattr(hdr, "characteristics", 0))
+                # LIEF 的枚举：lief.PE.Header.Characteristics
+                enum_cls = None
+                try:
+                    enum_cls = lief.PE.Header.Characteristics
+                except Exception:
+                    # 兼容：某些版本枚举位置不同
+                    enum_cls = getattr(lief.PE, "Header", None) and getattr(lief.PE.Header, "Characteristics", None)
+                if enum_cls is not None and bitmask:
+                    out["coff"]["characteristics"] = _characteristics_from_bitmask(bitmask, enum_cls)
+        except Exception:
+            pass
+
+    # ------- OPTIONAL header -------
+    try:
+        opt = getattr(bin, "optional_header", None) or getattr(bin, "optionalHeader", None)
+    except Exception:
+        opt = None
+
+    if opt is not None:
+        # subsystem
+        try:
+            subs = getattr(opt, "subsystem", None)
+            if subs is not None:
+                out["optional"]["subsystem"] = _enum_name(subs)
+        except Exception:
+            pass
+
+        # dll_characteristics -> list
+        try:
+            out["optional"]["dll_characteristics"] = _dll_characteristics_names(opt)
+        except Exception:
+            out["optional"]["dll_characteristics"] = []
+
+        # magic (PE32 / PE32+)
+        try:
+            magic = getattr(opt, "magic", None)
+            if magic is not None:
+                out["optional"]["magic"] = _enum_name(magic)
+            else:
+                # 兼容：某些属性名为 'magic_value' 或 'type'
+                mv = getattr(opt, "magic_value", None) or getattr(opt, "type", None)
+                if mv is not None:
+                    out["optional"]["magic"] = str(mv)
+        except Exception:
+            pass
+
+        # version fields
+        for name in ["major_image_version", "minor_image_version",
+                     "major_linker_version", "minor_linker_version",
+                     "major_operating_system_version", "minor_operating_system_version",
+                     "major_subsystem_version", "minor_subsystem_version"]:
+            try:
+                val = getattr(opt, name, None)
+                if val is None:
+                    # 某些字段可能在 LIEF 名称中略有不同，如 major_linker_version -> linker_version
+                    if name == "major_linker_version":
+                        val = getattr(opt, "linker_version", None)
+                    elif name == "minor_linker_version":
+                        # try to parse if linker_version is tuple
+                        val = getattr(opt, "minor_linker_version", None)
+                out["optional"][name] = int(val) if val is not None else out["optional"][name]
+            except Exception:
+                pass
+
+        # sizeof fields
+        try:
+            sc = getattr(opt, "sizeof_code", None)
+            if sc is None:
+                sc = getattr(opt, "size_of_code", None)
+            out["optional"]["sizeof_code"] = int(sc) if sc is not None else out["optional"]["sizeof_code"]
+        except Exception:
+            pass
+
+        try:
+            sh = getattr(opt, "sizeof_headers", None)
+            if sh is None:
+                sh = getattr(opt, "size_of_headers", None)
+            out["optional"]["sizeof_headers"] = int(sh) if sh is not None else out["optional"]["sizeof_headers"]
+        except Exception:
+            pass
+
+        try:
+            # 名称差异较大，尝试几种常见拼写
+            shc = getattr(opt, "sizeof_heap_commit", None)
+            if shc is None:
+                shc = getattr(opt, "size_of_heap_commit", None)
+                if shc is None:
+                    shc = getattr(opt, "sizeofheapcommit", None)
+            out["optional"]["sizeof_heap_commit"] = int(shc) if shc is not None else out["optional"]["sizeof_heap_commit"]
+        except Exception:
+            pass
+
+    return out
 
 
-def shannon_entropy(data: Iterable[int]) -> float:
-    """Compute Shannon entropy of an iterable of byte values."""
-    if not data:
-        return 0.0
-    counts = np.bincount(list(data), minlength=256)
-    probs = counts[counts > 0] / float(len(data))
-    return float(-np.sum(probs * np.log2(probs)))
+def Sections(file_path: str) -> Dict[str, Any]:
+    """
+    节区信息,JSON
+    :param file_path:
+    :return:
+    """
+
+    def _shannon_entropy_bytes(data_bytes: bytes) -> float:
+        if not data_bytes:
+            return 0.0
+        arr = np.frombuffer(data_bytes, dtype=np.uint8)
+        counts = np.bincount(arr, minlength=256)
+        probs = counts[counts > 0] / counts.sum()
+        return float(-(probs * np.log2(probs)).sum())
+
+    def _section_props(section: lief.PE.Section) -> List[str]:
+        """
+        返回类似 EMBER 的 section props 列表，例如：
+        CNT_INITIALIZED_DATA, MEM_EXECUTE, MEM_READ, MEM_WRITE
+        """
+        props: List[str] = []
+
+        # CNT_INITIALIZED_DATA if contains initialized data (non-zero raw size)
+        try:
+            # In EMBER "CNT_INITIALIZED_DATA" indicates initialized data presence.
+            if getattr(section, "size", 0) > 0 or getattr(section, "sizeof_raw_data", 0) > 0:
+                props.append("CNT_INITIALIZED_DATA")
+        except Exception:
+            pass
+
+        # Memory permissions: map LIEF flags -> EMBER style names
+        # LIEF has SECTION_CHARACTERISTICS or permissions / characteristics_list
+        char_list = []
+        try:
+            # try characteristics_list first (list of enums)
+            if hasattr(section, "characteristics_list") and section.characteristics_list:
+                char_list = [getattr(c, "name", str(c)).upper() for c in section.characteristics_list]
+        except Exception:
+            char_list = []
+
+        # Fallback: use bitmask field 'characteristics' if available
+        try:
+            if not char_list and hasattr(section, "characteristics"):
+                bitmask = int(getattr(section, "characteristics", 0))
+                for e in lief.PE.SECTION_CHARACTERISTICS:
+                    try:
+                        if bitmask & int(e):
+                            char_list.append(getattr(e, "name", str(e)).upper())
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+
+        # Permissions: many LIEF builds also have .has_characteristic or .has_* helpers
+        # We map common IMAGE_SCN flags to EMBER names:
+        # IMAGE_SCN_CNT_INITIALIZED_DATA, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ, IMAGE_SCN_MEM_WRITE
+        # We'll also check section.permissions if exists (lief.PE.SECTION_FLAGS)
+        try:
+            # MEM_EXECUTE
+            if ("MEM_EXECUTE" in " ".join(char_list)) or getattr(section, "has_characteristic", lambda x: False)(
+                    lief.PE.SECTION_CHARACTERISTICS.MEM_EXECUTE):
+                if "MEM_EXECUTE" not in props:
+                    props.append("MEM_EXECUTE")
+        except Exception:
+            pass
+
+        try:
+            if ("MEM_READ" in " ".join(char_list)) or getattr(section, "has_characteristic", lambda x: False)(
+                    lief.PE.SECTION_CHARACTERISTICS.MEM_READ):
+                if "MEM_READ" not in props:
+                    props.append("MEM_READ")
+        except Exception:
+            pass
+
+        try:
+            if ("MEM_WRITE" in " ".join(char_list)) or getattr(section, "has_characteristic", lambda x: False)(
+                    lief.PE.SECTION_CHARACTERISTICS.MEM_WRITE):
+                if "MEM_WRITE" not in props:
+                    props.append("MEM_WRITE")
+        except Exception:
+            pass
+
+        # Sometimes flags names include CNT_CODE / CNT_UNINITIALIZED_DATA etc.
+        try:
+            if any("CNT_CODE" in c or "CODE" in c for c in char_list):
+                if "CNT_CODE" not in props:
+                    props.append("CNT_CODE")
+            if any("UNINITIALIZED" in c or "CNT_UNINITIALIZED" in c for c in char_list):
+                if "CNT_UNINITIALIZED_DATA" not in props:
+                    props.append("CNT_UNINITIALIZED_DATA")
+        except Exception:
+            pass
+
+        # Keep order consistent with EMBER-like examples
+        # Ensure CNT_INITIALIZED_DATA present if no other indicators and section has raw data
+        if "CNT_INITIALIZED_DATA" not in props:
+            try:
+                if (getattr(section, "size", 0) > 0 or getattr(section, "sizeof_raw_data",
+                                                               0) > 0) and "CNT_UNINITIALIZED_DATA" not in props:
+                    props.insert(0, "CNT_INITIALIZED_DATA")
+            except Exception:
+                pass
+
+        return props
+
+    out = {
+        "section": {
+            "entry": "",
+            "sections": []
+        },
+        "imports": {},
+        "exports": [],
+        "datadirectories": []
+    }
+
+    bin = parse_pe(file_path)
+    if bin is None:
+        return out
+
+    # --- sections ---
+    try:
+        sections_list = []
+        for sec in getattr(bin, "sections", []):
+            # name: LIEF may include padding; emulate EMBER trimming to 8 chars style
+            try:
+                name = getattr(sec, "name", "")
+                # Keep visible ascii, but emulate EMBER's often padded names
+                name = (name or "").ljust(8)[:8]
+            except Exception:
+                name = ""
+
+            # raw size: prefer sizeof_raw_data or size
+            try:
+                size = int(
+                    getattr(sec, "size", 0) or getattr(sec, "sizeof_raw_data", 0) or len(bytes(sec.content or [])))
+            except Exception:
+                # fallback: compute from content
+                try:
+                    size = len(bytes(getattr(sec, "content", []) or []))
+                except Exception:
+                    size = 0
+
+            # vsize: virtual size
+            try:
+                vsize = int(
+                    getattr(sec, "virtual_size", 0) or getattr(sec, "vsize", 0) or getattr(sec, "virtual_size", 0))
+            except Exception:
+                vsize = 0
+
+            # entropy: compute from raw section data
+            try:
+                content_bytes = bytes(getattr(sec, "content", []) or [])
+                entropy = _shannon_entropy_bytes(content_bytes)
+            except Exception:
+                entropy = 0.0
+
+            # props
+            try:
+                props = _section_props(sec)
+            except Exception:
+                props = []
+
+            sections_list.append({
+                "name": name,
+                "size": size,
+                "entropy": float(entropy),
+                "vsize": vsize,
+                "props": props
+            })
+
+        out["section"]["sections"] = sections_list
+    except Exception:
+        out["section"]["sections"] = []
+
+    # determine entry: section that contains entrypoint RVA
+    try:
+        ep_rva = getattr(bin, "entrypoint", None)
+        if ep_rva is None:
+            # some LIEF versions: bin.entrypoint_rva
+            ep_rva = getattr(bin, "entrypoint_rva", None)
+        entry_section_name = ""
+        if ep_rva is not None:
+            for sec in getattr(bin, "sections", []):
+                start = int(getattr(sec, "virtual_address", 0) or getattr(sec, "virtual_address", 0))
+                vsize = int(getattr(sec, "virtual_size", 0) or getattr(sec, "vsize", 0))
+                if start <= ep_rva < (start + vsize):
+                    entry_section_name = (getattr(sec, "name", "") or "").ljust(8)[:8]
+                    break
+        out["section"]["entry"] = entry_section_name
+    except Exception:
+        out["section"]["entry"] = ""
+
+    # --- imports ---
+    try:
+        imports = {}
+        for lib in getattr(bin, "imports", []):
+            dll = getattr(lib, "name", "") or ""
+            funcs = []
+            for e in getattr(lib, "entries", []):
+                # e.name may be None if imported by ordinal
+                n = getattr(e, "name", None) or getattr(e, "symbol", None) or None
+                if n is None:
+                    # fallback to ordinal if present
+                    ordv = getattr(e, "ordinal", None)
+                    if ordv is not None:
+                        funcs.append(str(ordv))
+                else:
+                    funcs.append(n if isinstance(n, str) else n.decode(errors="ignore"))
+            imports[dll] = funcs
+        out["imports"] = imports
+    except Exception:
+        out["imports"] = {}
+
+    # --- exports ---
+    try:
+        exps = []
+        if getattr(bin, "has_exports", False):
+            exp = bin.get_export()
+            for e in getattr(exp, "entries", []):
+                name = getattr(e, "name", None) or getattr(e, "entry", None) or None
+                if name:
+                    exps.append(name if isinstance(name, str) else name.decode(errors="ignore"))
+        out["exports"] = exps
+    except Exception:
+        out["exports"] = []
+
+    # --- data directories ---
+    try:
+        dd = []
+        # LIEF provides optional_header.data_directory or bin.data_directories
+        data_dirs = getattr(bin, "data_directories", None) or getattr(bin.optional_header, "data_directory",
+                                                                      None) or getattr(bin, "data_directory", None)
+        # Try to iterate through a predictable set: LIEF may represent differently; we'll use known names list
+        if data_dirs:
+            # If it's dict-like keyed by enum, handle accordingly
+            try:
+                # some LIEF versions return list of DataDirectory objects in same order
+                for i, d in enumerate(data_dirs):
+                    if d is None:
+                        continue
+                    name = _DATA_DIR_NAMES[i] if i < len(_DATA_DIR_NAMES) else getattr(d, "type", str(i))
+                    size = int(getattr(d, "size", 0) or getattr(d, "Size", 0) or 0)
+                    va = int(getattr(d, "rva", 0) or getattr(d, "virtual_address", 0) or 0)
+                    dd.append({"name": str(name), "size": size, "virtual_address": va})
+            except Exception:
+                # fallback: maybe data_dirs is a dict mapping names to entries
+                try:
+                    for key, d in dict(data_dirs).items():
+                        name = str(key)
+                        size = int(getattr(d, "size", 0) or getattr(d, "Size", 0) or 0)
+                        va = int(getattr(d, "rva", 0) or getattr(d, "virtual_address", 0) or 0)
+                        dd.append({"name": name, "size": size, "virtual_address": va})
+                except Exception:
+                    dd = []
+        else:
+            # best-effort: iterate IMAGE_DIRECTORY_ENTRY enum
+            try:
+                for idx, nm in enumerate(_DATA_DIR_NAMES):
+                    try:
+                        d = bin.optional_header.data_directory[idx]
+                        size = int(getattr(d, "size", 0) or 0)
+                        va = int(getattr(d, "rva", 0) or getattr(d, "virtual_address", 0) or 0)
+                        dd.append({"name": nm, "size": size, "virtual_address": va})
+                    except Exception:
+                        dd.append({"name": nm, "size": 0, "virtual_address": 0})
+            except Exception:
+                dd = []
+        out["datadirectories"] = dd
+    except Exception:
+        out["datadirectories"] = []
+
+    return out
