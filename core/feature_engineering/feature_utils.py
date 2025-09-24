@@ -41,7 +41,7 @@ RE_REG = re.compile(
 )
 RE_MZ = re.compile(rb'MZ')
 
-#表信息
+# 表信息
 _DATA_DIR_NAMES = [
     "EXPORT_TABLE", "IMPORT_TABLE", "RESOURCE_TABLE", "EXCEPTION_TABLE",
     "CERTIFICATE_TABLE", "BASE_RELOCATION_TABLE", "DEBUG", "ARCHITECTURE",
@@ -79,7 +79,7 @@ def Hash_sha256(file_path: str, size: int = 4 * 1024 * 1024) -> str:
 
 
 def Appeared() -> str:
-    return ""
+    return "2018-11"
 
 
 def Label(file_path: str) -> int:
