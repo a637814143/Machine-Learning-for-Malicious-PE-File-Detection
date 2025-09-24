@@ -1,4 +1,6 @@
 pefile~=2024.8.26
 tqdm~=4.67.1
 PyQt5~=5.15.9
-lief~=0.12.1
+lief~=0.16.6
+numpy~=1.24.3
+scikit-learn~=1.7.1

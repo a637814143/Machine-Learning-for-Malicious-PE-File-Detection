@@ -20,11 +20,11 @@ PRINTABLE_RANGE = PRINTABLE_MAX - PRINTABLE_MIN + 1
 RE_PRINTABLE = re.compile(rb'[\x20-\x7e]{4,}')
 RE_URL = re.compile(
     rb'(?:'
-    rb'(?:https?|ftp)://[^\s/$.?#].[^\s]*'
+    rb'(?:https?|ftp)://[^\s/$.?#].\S*'
     rb'|'
-    rb'www\.[^\s/]+[^\s]*'
+    rb'www\.[^\s/]+\S*'
     rb'|'
-    rb'[A-Za-z0-9.-]+\.(?:com|net|org|edu|gov|mil|info|io|biz|cn|ru|uk|de|jp|fr|au|br|it|nl|es)[^\s]*'
+    rb'[A-Za-z0-9.-]+\.(?:com|net|org|edu|gov|mil|info|io|biz|cn|ru|uk|de|jp|fr|au|br|it|nl|es)\S*'
     rb')',
     flags=re.IGNORECASE
 )
