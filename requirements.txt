@@ -1,3 +1,6 @@
+numpy~=2.2.6
+scipy~=1.15.3
+scikit-learn~=1.7.2
 pefile~=2024.8.26
 tqdm~=4.67.1
 PyQt5~=5.15.9

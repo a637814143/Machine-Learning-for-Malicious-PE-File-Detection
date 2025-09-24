@@ -1,39 +1,24 @@
 """Feature vectorisation utilities.
 
-This module converts the raw feature dictionaries produced by
-``static_features.extract_features`` into fixed-length numpy arrays using a
-feature hashing scheme.  The resulting vectors have dimensionality greater
-than the 2381 dimensions used in the original EMBER dataset to satisfy the
-project requirements.
+This module mirrors the behaviour of the original EMBER feature pipeline and
+converts the raw feature dictionaries produced by
+``static_features.extract_features`` into 2381-dimensional NumPy arrays.  The
+implementation follows ``ember.features.PEFeatureExtractor.process_raw_features``
+so that downstream models obtain feature vectors identical to those generated
+by EMBER.
 """
 
 from __future__ import annotations
 
 import json
-from typing import Dict, List
+from typing import Dict, Iterable, List, Sequence, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 from pathlib import Path
 
 import numpy as np
 
-import hashlib
-
-
-def stable_hash(value, modulo: int) -> int:
-    """Return a deterministic hash bucket for ``value`` in ``[0, modulo)``."""
-
-    if modulo <= 0:
-        raise ValueError("modulo must be positive")
-
-    if value is None:
-        return 0
-
-    if not isinstance(value, (bytes, bytearray)):
-        value = str(value).encode("utf-8", errors="ignore")
-
-    digest = hashlib.sha1(value).digest()
-    return int.from_bytes(digest[:8], "big") % modulo
+from sklearn.feature_extraction import FeatureHasher
 
 
 class ThreadSafeVectorWriter:
@@ -83,8 +68,9 @@ class ThreadSafeVectorWriter:
 BYTE_HIST_SIZE = 256
 BYTE_ENTROPY_HIST_SIZE = 256
 
-STRING_STATS = ["numstrings", "avlength", "printables", "entropy", "paths", "urls", "registry", "MZ"]
-PRINTABLE_DIST_SIZE = 95  # printable ASCII characters
+STRING_LEADING_FIELDS = ["numstrings", "avlength", "printables"]
+PRINTABLE_DIST_SIZE = 96  # printable ASCII characters (0x20 - 0x7f)
+STRING_TRAILING_FIELDS = ["entropy", "paths", "urls", "registry", "MZ"]
 
 GENERAL_FEATURES = [
     "size",
@@ -100,8 +86,11 @@ GENERAL_FEATURES = [
 ]
 
 HEADER_TIMESTAMP_SIZE = 1
-HEADER_MACHINE_HASH_SIZE = 32
-HEADER_CHARACTERISTICS_HASH_SIZE = 128
+HEADER_MACHINE_HASH_SIZE = 10
+HEADER_CHARACTERISTICS_HASH_SIZE = 10
+OPTIONAL_SUBSYSTEM_HASH_SIZE = 10
+OPTIONAL_DLL_CHARACTERISTICS_HASH_SIZE = 10
+OPTIONAL_MAGIC_HASH_SIZE = 10
 
 OPTIONAL_NUMERIC_FEATURES = [
     "major_image_version",
@@ -116,45 +105,94 @@ OPTIONAL_NUMERIC_FEATURES = [
     "sizeof_headers",
     "sizeof_heap_commit",
 ]
-OPTIONAL_SUBSYSTEM_HASH_SIZE = 32
-OPTIONAL_MAGIC_HASH_SIZE = 16
-OPTIONAL_DLL_CHARACTERISTICS_HASH_SIZE = 128
 
-DATA_DIRECTORY_SIZE = 32  # 16 directories * (virtual_address/rva, size)
+DATA_DIRECTORY_COUNT = 15
+DATA_DIRECTORY_SIZE = DATA_DIRECTORY_COUNT * 2
 
-SECTION_COUNT = 10
-SECTION_NUMERIC_ATTRS = ["size", "entropy", "vsize"]
-SECTION_STATS_SIZE = SECTION_COUNT * len(SECTION_NUMERIC_ATTRS)
-SECTION_NAME_HASH_SIZE = 256
-SECTION_PROP_HASH_SIZE = 128
+SECTION_GENERAL_SIZE = 5
+SECTION_HASH_SIZE = 50
+SECTION_VECTOR_SIZE = SECTION_GENERAL_SIZE + SECTION_HASH_SIZE * 5
 
 IMPORT_LIB_HASH_SIZE = 256
-IMPORT_FUNC_HASH_SIZE = 1536
-EXPORT_HASH_SIZE = 256
-RESOURCE_HASH_SIZE = 256
+IMPORT_FUNC_HASH_SIZE = 1024
+EXPORT_HASH_SIZE = 128
 
 VECTOR_SIZE = (
     BYTE_HIST_SIZE
     + BYTE_ENTROPY_HIST_SIZE
-    + len(STRING_STATS)
+    + len(STRING_LEADING_FIELDS)
     + PRINTABLE_DIST_SIZE
+    + len(STRING_TRAILING_FIELDS)
     + len(GENERAL_FEATURES)
     + HEADER_TIMESTAMP_SIZE
     + HEADER_MACHINE_HASH_SIZE
     + HEADER_CHARACTERISTICS_HASH_SIZE
-    + len(OPTIONAL_NUMERIC_FEATURES)
     + OPTIONAL_SUBSYSTEM_HASH_SIZE
-    + OPTIONAL_MAGIC_HASH_SIZE
     + OPTIONAL_DLL_CHARACTERISTICS_HASH_SIZE
+    + OPTIONAL_MAGIC_HASH_SIZE
+    + len(OPTIONAL_NUMERIC_FEATURES)
     + DATA_DIRECTORY_SIZE
-    + SECTION_STATS_SIZE
-    + SECTION_NAME_HASH_SIZE
-    + SECTION_PROP_HASH_SIZE
+    + SECTION_VECTOR_SIZE
     + IMPORT_LIB_HASH_SIZE
     + IMPORT_FUNC_HASH_SIZE
     + EXPORT_HASH_SIZE
-    + RESOURCE_HASH_SIZE
 )
+
+
+_MACHINE_HASHER = FeatureHasher(HEADER_MACHINE_HASH_SIZE, input_type="string")
+_CHARACTERISTICS_HASHER = FeatureHasher(HEADER_CHARACTERISTICS_HASH_SIZE, input_type="string")
+_SUBSYSTEM_HASHER = FeatureHasher(OPTIONAL_SUBSYSTEM_HASH_SIZE, input_type="string")
+_DLL_CHARACTERISTICS_HASHER = FeatureHasher(OPTIONAL_DLL_CHARACTERISTICS_HASH_SIZE, input_type="string")
+_MAGIC_HASHER = FeatureHasher(OPTIONAL_MAGIC_HASH_SIZE, input_type="string")
+
+_SECTION_SIZE_HASHER = FeatureHasher(SECTION_HASH_SIZE, input_type="pair")
+_SECTION_ENTROPY_HASHER = FeatureHasher(SECTION_HASH_SIZE, input_type="pair")
+_SECTION_VSIZE_HASHER = FeatureHasher(SECTION_HASH_SIZE, input_type="pair")
+_SECTION_ENTRY_HASHER = FeatureHasher(SECTION_HASH_SIZE, input_type="string")
+_SECTION_CHARACTERISTICS_HASHER = FeatureHasher(SECTION_HASH_SIZE, input_type="string")
+
+_IMPORT_LIBRARY_HASHER = FeatureHasher(IMPORT_LIB_HASH_SIZE, input_type="string")
+_IMPORT_FUNCTION_HASHER = FeatureHasher(IMPORT_FUNC_HASH_SIZE, input_type="string")
+_EXPORT_HASHER = FeatureHasher(EXPORT_HASH_SIZE, input_type="string")
+
+
+def _normalise_histogram(values: Sequence[float] | np.ndarray | None, size: int) -> np.ndarray:
+    array = np.zeros(size, dtype=np.float32)
+    if values is None:
+        return array
+
+    data = np.asarray(values, dtype=np.float32)
+    if data.size == 0:
+        return array
+
+    data = data[:size]
+    total = data.sum()
+    if total > 0:
+        data = data / total
+    array[: data.size] = data
+    return array
+
+
+def _hash_single_string(hasher: FeatureHasher, value: str) -> np.ndarray:
+    tokens: Iterable[str]
+    if value:
+        tokens = [value]
+    else:
+        tokens = []
+    return hasher.transform([list(tokens)]).toarray()[0].astype(np.float32)
+
+
+def _hash_string_iterable(hasher: FeatureHasher, values: Iterable[str] | None) -> np.ndarray:
+    tokens = list(values) if values is not None else []
+    return hasher.transform([tokens]).toarray()[0].astype(np.float32)
+
+
+def _hash_pairs(hasher: FeatureHasher, pairs: Iterable[Tuple[str, float]] | None) -> np.ndarray:
+    clean_pairs: List[Tuple[str, float]] = []
+    if pairs is not None:
+        for name, value in pairs:
+            clean_pairs.append((str(name), float(value)))
+    return hasher.transform([clean_pairs]).toarray()[0].astype(np.float32)
 
 
 def _vectorize_entry(features: Dict[str, object]) -> np.ndarray:
@@ -162,147 +200,164 @@ def _vectorize_entry(features: Dict[str, object]) -> np.ndarray:
     offset = 0
 
     # Byte histograms --------------------------------------------------
-    vec[offset : offset + BYTE_HIST_SIZE] = np.array(features.get("byte_hist", []), dtype=np.float32)[
-        :BYTE_HIST_SIZE
-    ]
+    vec[offset : offset + BYTE_HIST_SIZE] = _normalise_histogram(features.get("histogram", []), BYTE_HIST_SIZE)
     offset += BYTE_HIST_SIZE
-    vec[offset : offset + BYTE_ENTROPY_HIST_SIZE] = np.array(
-        features.get("byte_entropy_hist", []), dtype=np.float32
-    )[:BYTE_ENTROPY_HIST_SIZE]
+
+    vec[offset : offset + BYTE_ENTROPY_HIST_SIZE] = _normalise_histogram(
+        features.get("byteentropy", []), BYTE_ENTROPY_HIST_SIZE
+    )
     offset += BYTE_ENTROPY_HIST_SIZE
 
     # Strings ----------------------------------------------------------
-    strings = features.get("strings", {})
-    for i, name in enumerate(STRING_STATS):
-        vec[offset + i] = float(strings.get(name, 0))
-    offset += len(STRING_STATS)
+    strings = features.get("strings", {}) or {}
+    for name in STRING_LEADING_FIELDS:
+        vec[offset] = float(strings.get(name, 0))
+        offset += 1
 
-    printable = np.array(strings.get("printabledist", []), dtype=np.float32)
-    vec[offset : offset + PRINTABLE_DIST_SIZE] = printable[:PRINTABLE_DIST_SIZE]
+    printable = np.zeros(PRINTABLE_DIST_SIZE, dtype=np.float32)
+    raw_printable = np.asarray(strings.get("printabledist", []), dtype=np.float32)
+    if raw_printable.size:
+        length = min(PRINTABLE_DIST_SIZE, raw_printable.size)
+        printable[:length] = raw_printable[:length]
+    divisor = float(strings.get("printables", 0))
+    if divisor > 0:
+        printable /= divisor
+    else:
+        printable[:] = 0.0
+    vec[offset : offset + PRINTABLE_DIST_SIZE] = printable
     offset += PRINTABLE_DIST_SIZE
 
+    for name in STRING_TRAILING_FIELDS:
+        vec[offset] = float(strings.get(name, 0))
+        offset += 1
+
     # General ----------------------------------------------------------
-    general = features.get("general", {})
-    for i, name in enumerate(GENERAL_FEATURES):
-        vec[offset + i] = float(general.get(name, 0))
-    offset += len(GENERAL_FEATURES)
+    general = features.get("general", {}) or {}
+    for name in GENERAL_FEATURES:
+        vec[offset] = float(general.get(name, 0))
+        offset += 1
 
     # Header -----------------------------------------------------------
-    header = features.get("header", {})
-    vec[offset] = float(header.get("timestamp", 0))
+    header = features.get("header", {}) or {}
+    coff = header.get("coff", {}) or {}
+    optional = header.get("optional", {}) or {}
+
+    vec[offset] = float(coff.get("timestamp", 0))
     offset += HEADER_TIMESTAMP_SIZE
 
-    machine = header.get("machine", "")
-    if machine:
-        idx = stable_hash(machine, HEADER_MACHINE_HASH_SIZE)
-        vec[offset + idx] += 1.0
+    vec[offset : offset + HEADER_MACHINE_HASH_SIZE] = _hash_single_string(
+        _MACHINE_HASHER, str(coff.get("machine", "") or "")
+    )
     offset += HEADER_MACHINE_HASH_SIZE
 
-    for characteristic in header.get("characteristics", []) or []:
-        idx = stable_hash(characteristic, HEADER_CHARACTERISTICS_HASH_SIZE)
-        vec[offset + idx] += 1.0
+    vec[offset : offset + HEADER_CHARACTERISTICS_HASH_SIZE] = _hash_string_iterable(
+        _CHARACTERISTICS_HASHER, coff.get("characteristics", []) or []
+    )
     offset += HEADER_CHARACTERISTICS_HASH_SIZE
 
-    # Optional header --------------------------------------------------
-    opt = features.get("optional_header", {})
-    for i, name in enumerate(OPTIONAL_NUMERIC_FEATURES):
-        vec[offset + i] = float(opt.get(name, 0))
-    offset += len(OPTIONAL_NUMERIC_FEATURES)
-
-    subsystem = opt.get("subsystem", "")
-    if subsystem:
-        idx = stable_hash(subsystem, OPTIONAL_SUBSYSTEM_HASH_SIZE)
-        vec[offset + idx] += 1.0
+    vec[offset : offset + OPTIONAL_SUBSYSTEM_HASH_SIZE] = _hash_single_string(
+        _SUBSYSTEM_HASHER, str(optional.get("subsystem", "") or "")
+    )
     offset += OPTIONAL_SUBSYSTEM_HASH_SIZE
 
-    magic = opt.get("magic", "")
-    if magic:
-        idx = stable_hash(magic, OPTIONAL_MAGIC_HASH_SIZE)
-        vec[offset + idx] += 1.0
-    offset += OPTIONAL_MAGIC_HASH_SIZE
-
-    for dll_char in opt.get("dll_characteristics", []) or []:
-        idx = stable_hash(dll_char, OPTIONAL_DLL_CHARACTERISTICS_HASH_SIZE)
-        vec[offset + idx] += 1.0
+    vec[offset : offset + OPTIONAL_DLL_CHARACTERISTICS_HASH_SIZE] = _hash_string_iterable(
+        _DLL_CHARACTERISTICS_HASHER, optional.get("dll_characteristics", []) or []
+    )
     offset += OPTIONAL_DLL_CHARACTERISTICS_HASH_SIZE
 
+    vec[offset : offset + OPTIONAL_MAGIC_HASH_SIZE] = _hash_single_string(
+        _MAGIC_HASHER, str(optional.get("magic", "") or "")
+    )
+    offset += OPTIONAL_MAGIC_HASH_SIZE
+
+    for name in OPTIONAL_NUMERIC_FEATURES:
+        vec[offset] = float(optional.get(name, 0))
+        offset += 1
+
     # Data directories -------------------------------------------------
-    data_dirs = features.get("data_directories", [])
-    for i in range(16):
+    data_dirs = features.get("datadirectories", []) or []
+    for i in range(DATA_DIRECTORY_COUNT):
         if i < len(data_dirs):
-            entry = data_dirs[i]
-            vec[offset + i * 2] = float(entry.get("virtual_address", entry.get("rva", 0)))
-            vec[offset + i * 2 + 1] = float(entry.get("size", 0))
+            entry = data_dirs[i] or {}
+            vec[offset + i * 2] = float(entry.get("size", 0))
+            vec[offset + i * 2 + 1] = float(entry.get("virtual_address", entry.get("rva", 0)))
     offset += DATA_DIRECTORY_SIZE
 
     # Section statistics -----------------------------------------------
-    sections = features.get("sections", [])
-    for i in range(SECTION_COUNT):
-        if i < len(sections):
-            sec = sections[i]
-            base = offset + i * len(SECTION_NUMERIC_ATTRS)
-            for j, attr in enumerate(SECTION_NUMERIC_ATTRS):
-                vec[base + j] = float(sec.get(attr, 0))
-    offset += SECTION_STATS_SIZE
+    section_info = features.get("section", {}) or {}
+    sections = section_info.get("sections", []) or []
 
-    # Section name hashing ---------------------------------------------
-    for sec in sections:
-        idx = stable_hash(sec.get("name", ""), SECTION_NAME_HASH_SIZE)
-        vec[offset + idx] += 1.0
-    offset += SECTION_NAME_HASH_SIZE
+    general_stats = [
+        len(sections),
+        sum(1 for s in sections if float(s.get("size", 0)) == 0),
+        sum(1 for s in sections if not s.get("name")),
+        sum(
+            1
+            for s in sections
+            if "MEM_READ" in (s.get("props") or []) and "MEM_EXECUTE" in (s.get("props") or [])
+        ),
+        sum(1 for s in sections if "MEM_WRITE" in (s.get("props") or [])),
+    ]
+    vec[offset : offset + SECTION_GENERAL_SIZE] = np.asarray(general_stats, dtype=np.float32)
+    offset += SECTION_GENERAL_SIZE
 
-    # Section property hashing ----------------------------------------
-    for sec in sections:
-        for prop in sec.get("props", []) or []:
-            idx = stable_hash(prop, SECTION_PROP_HASH_SIZE)
-            vec[offset + idx] += 1.0
-    offset += SECTION_PROP_HASH_SIZE
+    section_sizes = [(s.get("name", ""), s.get("size", 0)) for s in sections]
+    vec[offset : offset + SECTION_HASH_SIZE] = _hash_pairs(_SECTION_SIZE_HASHER, section_sizes)
+    offset += SECTION_HASH_SIZE
 
-    # Import libraries hashing ----------------------------------------
+    section_entropy = [(s.get("name", ""), s.get("entropy", 0)) for s in sections]
+    vec[offset : offset + SECTION_HASH_SIZE] = _hash_pairs(_SECTION_ENTROPY_HASHER, section_entropy)
+    offset += SECTION_HASH_SIZE
+
+    section_vsize = [(s.get("name", ""), s.get("vsize", s.get("virtual_size", 0))) for s in sections]
+    vec[offset : offset + SECTION_HASH_SIZE] = _hash_pairs(_SECTION_VSIZE_HASHER, section_vsize)
+    offset += SECTION_HASH_SIZE
+
+    vec[offset : offset + SECTION_HASH_SIZE] = _hash_single_string(
+        _SECTION_ENTRY_HASHER, str(section_info.get("entry", "") or "")
+    )
+    offset += SECTION_HASH_SIZE
+
+    entry_name = section_info.get("entry", "")
+    entry_characteristics: List[str] = []
+    for s in sections:
+        if s.get("name") == entry_name:
+            entry_characteristics.extend(s.get("props", []) or [])
+    vec[offset : offset + SECTION_HASH_SIZE] = _hash_string_iterable(
+        _SECTION_CHARACTERISTICS_HASHER, entry_characteristics
+    )
+    offset += SECTION_HASH_SIZE
+
+    # Imports ----------------------------------------------------------
     imports = features.get("imports", {}) or {}
-    libraries: List[str]
-    functions: List[str]
-    if isinstance(imports, dict) and ("libraries" in imports or "functions" in imports):
-        libraries = list(imports.get("libraries", []))
-        functions = list(imports.get("functions", []))
-    elif isinstance(imports, dict):
-        libraries = list(imports.keys())
-        functions = []
-        for lib, entries in imports.items():
-            if isinstance(entries, list):
-                functions.extend(f"{lib}:{entry}" for entry in entries)
-            elif entries is not None:
-                functions.append(f"{lib}:{entries}")
+    if isinstance(imports, dict):
+        libraries = list({str(lib).lower() for lib in imports.keys()})
     else:
         libraries = []
-        functions = []
-
-    for lib in libraries:
-        idx = stable_hash(lib, IMPORT_LIB_HASH_SIZE)
-        vec[offset + idx] += 1.0
+    vec[offset : offset + IMPORT_LIB_HASH_SIZE] = _hash_string_iterable(_IMPORT_LIBRARY_HASHER, libraries)
     offset += IMPORT_LIB_HASH_SIZE
 
-    # Import functions hashing ----------------------------------------
-    for func in functions:
-        idx = stable_hash(func, IMPORT_FUNC_HASH_SIZE)
-        vec[offset + idx] += 1.0
+    import_functions: List[str] = []
+    if isinstance(imports, dict):
+        for lib, entries in imports.items():
+            lib_lower = str(lib).lower()
+            if isinstance(entries, (list, tuple)):
+                import_functions.extend(f"{lib_lower}:{entry}" for entry in entries)
+            elif entries:
+                import_functions.append(f"{lib_lower}:{entries}")
+    vec[offset : offset + IMPORT_FUNC_HASH_SIZE] = _hash_string_iterable(
+        _IMPORT_FUNCTION_HASHER, import_functions
+    )
     offset += IMPORT_FUNC_HASH_SIZE
 
-    # Exported functions hashing --------------------------------------
-    exports = features.get("exports", {})
+    # Exports ----------------------------------------------------------
+    exports = features.get("exports", [])
     if isinstance(exports, dict):
-        export_list = exports.get("functions", []) or []
+        export_entries = exports.get("functions", []) or []
     else:
-        export_list = exports or []
-    for func in export_list:
-        idx = stable_hash(func, EXPORT_HASH_SIZE)
-        vec[offset + idx] += 1.0
+        export_entries = exports or []
+    vec[offset : offset + EXPORT_HASH_SIZE] = _hash_string_iterable(_EXPORT_HASHER, export_entries)
     offset += EXPORT_HASH_SIZE
-
-    # Resources hashing ------------------------------------------------
-    for res in features.get("resources", []) or []:
-        idx = stable_hash(res, RESOURCE_HASH_SIZE)
-        vec[offset + idx] += 1.0
 
     return vec
 
