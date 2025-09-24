@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 
 
-def NAME_RULE() -> str:
+def NAME_RULE(only_time=False) -> str:
     """
     获取调用者的名字，以便生成正确的日志和训练产物
     :return:
@@ -15,7 +15,7 @@ def NAME_RULE() -> str:
     time = datetime.now().strftime("%Y.%m.%d_%H.%M.%S")
     final_name = name + '~' + time
 
-    return final_name
+    return time if only_time else final_name
 
 
 def GET_TIME(ori_str: str) -> str:
