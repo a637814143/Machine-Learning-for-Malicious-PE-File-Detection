@@ -73,6 +73,18 @@ STRING_LEADING_FIELDS = ["numstrings", "avlength", "printables"]
 PRINTABLE_DIST_SIZE = 96  # printable ASCII characters (0x20 - 0x7f)
 STRING_TRAILING_FIELDS = ["entropy", "paths", "urls", "registry", "MZ"]
 
+FEATURE_BLOCK_KEYS = {
+    "histogram",
+    "byteentropy",
+    "strings",
+    "general",
+    "header",
+    "section",
+    "imports",
+    "exports",
+    "datadirectories",
+}
+
 GENERAL_FEATURES = [
     "size",
     "vsize",
@@ -373,17 +385,27 @@ def vectorize_feature_file(
 ) -> None:
     """Vectorise features stored in ``json_path`` and save to ``save_path``.
 
-    ``json_path`` should contain one JSON object per line with a ``features``
-    field as produced by :func:`static_features.extract_from_directory`.
+    ``json_path`` should contain one JSON object per line. Each line can either
+    include a ``features`` field (as produced by
+    :func:`static_features.extract_from_directory`) or place the EMBER-style
+    feature blocks directly at the top level (official EMBER JSONL export).
     ``save_path`` will be written in NumPy ``.npy`` format containing an
     array of shape ``(num_files, VECTOR_SIZE)``.
     """
     save_path += '/' + NAME_RULE(only_time=True)
     print(save_path)
     file_path = Path(json_path)
-    lines = file_path.read_text(encoding="utf-8").splitlines()
 
-    total = len(lines)
+    if not file_path.exists():
+        raise FileNotFoundError(f"特征文件不存在: {json_path}")
+
+    # 为了兼容大型官方 EMBER 数据集，按流式方式读取文件，并单独统计行数
+    with file_path.open("r", encoding="utf-8") as fh:
+        total = sum(1 for _ in fh)
+
+    if total == 0:
+        text_callback("输入文件为空，未生成任何向量")
+        return
     if progress_callback is None:
         progress_callback = lambda x: None
     if text_callback is None:
@@ -402,8 +424,26 @@ def vectorize_feature_file(
         """处理单行数据的向量化"""
         idx, line = line_data
         record = json.loads(line)
-        features = record.get("features", {})
-        path = record.get('path', f'line_{idx}')
+
+        features = record.get("features")
+        if not features:
+            # 兼容 EMBER 官方 JSONL：特征字段位于顶层
+            fallback = {
+                key: value
+                for key, value in record.items()
+                if key in FEATURE_BLOCK_KEYS
+            }
+            if fallback:
+                features = fallback
+            else:
+                features = {}
+
+        path = (
+            record.get("path")
+            or record.get("sha256")
+            or record.get("md5")
+            or f"line_{idx}"
+        )
         
         try:
             vec = _vectorize_entry(features)
@@ -427,7 +467,10 @@ def vectorize_feature_file(
         vector_writer = ThreadSafeVectorWriter(save_path, VECTOR_SIZE, text_callback)
     
     # 准备数据
-    line_data = [(i, line) for i, line in enumerate(lines)]
+    def iter_lines():
+        with file_path.open("r", encoding="utf-8") as fh:
+            for idx, raw_line in enumerate(fh):
+                yield idx, raw_line.rstrip("\n")
     
     # 使用线程池并行处理
     vectors = [None] * total if not realtime_write else None  # 批量模式才需要预分配
@@ -437,10 +480,10 @@ def vectorize_feature_file(
     try:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             # 提交所有任务
-            future_to_idx = {
-                executor.submit(process_line, data, vector_writer): data[0] 
-                for data in line_data
-            }
+            future_to_idx = {}
+            for data in iter_lines():
+                future = executor.submit(process_line, data, vector_writer)
+                future_to_idx[future] = data[0]
             
             # 收集结果
             for future in as_completed(future_to_idx):
@@ -485,3 +528,4 @@ def vectorize_feature_file(
     except Exception as e:
         text_callback(f"向量化过程异常: {str(e)}")
         raise
+
