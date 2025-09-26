@@ -4,3 +4,4 @@ PyQt5~=5.15.9
 lief~=0.16.6
 numpy~=1.24.3
 scikit-learn~=1.7.1
+lightgbm~=4.5.0

@@ -20,6 +20,7 @@ from core.feature_engineering import (
     extract_from_directory,
     vectorize_feature_file,
 )
+from core.modeling.trainer import LightGBMTrainer
 
 try:
     import pefile
@@ -120,10 +121,28 @@ def feature_vector_task(args, progress, text):
     text("特征向量化完成")
 
 
+@register_task("训练模型")
+def train_model_task(args, progress, text):
+    """Train a LightGBM model using EMBER-style NumPy vectors."""
+
+    if len(args) < 2:
+        text("需要提供向量化数据路径和模型保存目录")
+        return
+
+    dataset_path, output_dir = args[0], args[1]
+    trainer = LightGBMTrainer()
+
+    try:
+        trainer.train_from_path(dataset_path, output_dir, progress_callback=progress, text_callback=text)
+        text("模型训练完成")
+    except Exception as exc:  # pragma: no cover - runtime errors are surfaced in UI
+        text(f"训练失败: {exc}")
+        raise
+
+
 # Register placeholders for remaining buttons -------------------------------
 for _name in [
     "数据清洗",
-    "训练模型",
     "测试模型",
     "静态检测",
     "获取良性",
