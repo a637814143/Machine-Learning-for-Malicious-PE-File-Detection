@@ -20,6 +20,7 @@ from core.feature_engineering import (
     extract_from_directory,
     vectorize_feature_file,
 )
+from core.modeling.trainer import train_ember_model
 
 try:
     import pefile
@@ -120,10 +121,46 @@ def feature_vector_task(args, progress, text):
     text("特征向量化完成")
 
 
+# Training task --------------------------------------------------------------
+
+
+@register_task("训练模型")
+def train_model_task(args, progress, text):
+    """Train a LightGBM model using EMBER-compatible vectors."""
+
+    if len(args) < 3:
+        text("需要提供训练向量文件、原始 JSONL 以及模型保存路径")
+        return
+
+    train_vectors = Path(args[0])
+    train_jsonl = Path(args[1])
+    model_output = Path(args[2])
+
+    valid_vectors = Path(args[3]) if len(args) > 3 and args[3] else None
+    valid_jsonl = Path(args[4]) if len(args) > 4 and args[4] else None
+
+    if (valid_vectors is None) != (valid_jsonl is None):
+        text("验证集路径需要同时提供向量文件和 JSONL 标签")
+        return
+
+    try:
+        train_ember_model(
+            train_vectors=train_vectors,
+            train_jsonl=train_jsonl,
+            model_output=model_output,
+            valid_vectors=valid_vectors,
+            valid_jsonl=valid_jsonl,
+            progress_callback=progress,
+            text_callback=text,
+        )
+        text("模型训练完成")
+    except Exception as exc:  # pragma: no cover - runtime errors
+        text(f"模型训练失败: {exc}")
+
+
 # Register placeholders for remaining buttons -------------------------------
 for _name in [
     "数据清洗",
-    "训练模型",
     "测试模型",
     "静态检测",
     "获取良性",

@@ -83,7 +83,41 @@ Graduation-Project-ML-Malicious-PE/
 
 ---
 
+## Training with the Official EMBER Configuration
+
+The project includes a LightGBM training pipeline that mirrors the official
+EMBER setup. Once you have vectorised the JSONL features into ``.npy`` files,
+train a model as follows:
+
+```bash
+python - <<'PY'
+from pathlib import Path
+from core.modeling.trainer import train_ember_model
+
+train_vectors = Path("data/processed/npy/ember_train.npy")
+train_jsonl = Path("data/raw/ember/train.jsonl")
+valid_vectors = Path("data/processed/npy/ember_valid.npy")
+valid_jsonl = Path("data/raw/ember/valid.jsonl")
+model_path = Path("models/ember_lightgbm.txt")
+
+train_ember_model(
+    train_vectors=train_vectors,
+    train_jsonl=train_jsonl,
+    model_output=model_path,
+    valid_vectors=valid_vectors,
+    valid_jsonl=valid_jsonl,
+)
+PY
+```
+
+Progress updates and validation metrics are streamed through the GUI task
+system. The resulting LightGBM model is saved in the standard text format and
+can be loaded via ``lightgbm.Booster(model_file=...)`` for inference.
+
 ## Summary
-This project provides a structured approach for detecting malicious PE files using machine learning.  
-The framework and partial core functionality have been established.  
-Further development will enable complete malware analysis, prediction, and reporting capabilities.
+
+This project provides a structured approach for detecting malicious PE files
+using machine learning. The framework and core functionality have been
+established, including an EMBER-compatible feature extraction and training
+pipeline. Further development will enable complete malware analysis,
+prediction, and reporting capabilities.
