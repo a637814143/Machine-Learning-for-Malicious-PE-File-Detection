@@ -10,6 +10,7 @@ Use @register_task("任务名称") to register a function so that the UI
 can find and execute it asynchronously.
 """
 
+import json
 import time
 from pathlib import Path
 from .registry import register_task
@@ -20,6 +21,7 @@ from core.feature_engineering import (
     extract_from_directory,
     vectorize_feature_file,
 )
+from core.modeling.trainer import train_ember_model
 
 try:
     import pefile
@@ -83,18 +85,18 @@ def extract_features_task(args, progress, text):
         text("需要提供输入文件夹和保存路径")
         return
     src, dst = args[0], args[1]
-    
+
     # 支持自定义线程数（第三个参数）
     max_workers = int(args[2]) if len(args) > 2 and args[2].isdigit() else None
-    
+
     # 支持实时写入控制（第四个参数）
     realtime_write = True
     if len(args) > 3:
         if args[3].lower() in ['false', '0', 'no', 'batch']:
             realtime_write = False
-    
-    extract_from_directory(src, dst, progress_callback=progress, text_callback=text, 
-                          max_workers=max_workers, realtime_write=realtime_write)
+
+    extract_from_directory(src, dst, progress_callback=progress, text_callback=text,
+                           max_workers=max_workers, realtime_write=realtime_write)
     text("特征提取完成")
 
 
@@ -105,25 +107,97 @@ def feature_vector_task(args, progress, text):
         text("需要提供特征文件路径和保存路径")
         return
     src, dst = args[0], args[1]
-    
+
     # 支持自定义线程数（第三个参数）
     max_workers = int(args[2]) if len(args) > 2 and args[2].isdigit() else None
-    
+
     # 支持实时写入控制（第四个参数）
     realtime_write = True
     if len(args) > 3:
         if args[3].lower() in ['false', '0', 'no', 'batch']:
             realtime_write = False
-    
-    vectorize_feature_file(src, dst, progress_callback=progress, text_callback=text, 
-                          max_workers=max_workers, realtime_write=realtime_write)
+
+    vectorize_feature_file(src, dst, progress_callback=progress, text_callback=text,
+                           max_workers=max_workers, realtime_write=realtime_write)
     text("特征向量化完成")
+
+
+# Training task --------------------------------------------------------------
+
+
+@register_task("训练模型")
+def train_model_task(args, progress, text):
+    """Train a LightGBM model using EMBER-compatible vectors."""
+
+    if len(args) < 3:
+        text(
+            "参数不足：请输入 [训练向量] [训练 JSONL] [模型输出] "
+            "(可选)[验证向量] [验证 JSONL] (可选)[迭代轮数] (可选)[LightGBM 参数 JSON]"
+        )
+        return
+
+    train_vectors = Path(args[0])
+    train_jsonl = Path(args[1])
+    model_output = Path(args[2])
+
+    valid_vectors = Path(args[3]) if len(args) > 3 and args[3] else None
+    valid_jsonl = Path(args[4]) if len(args) > 4 and args[4] else None
+
+    if (valid_vectors is None) != (valid_jsonl is None):
+        text("验证集路径需要同时提供向量文件和 JSONL 标签")
+        return
+
+    num_boost_round = None
+    if len(args) > 5 and args[5]:
+        try:
+            num_boost_round = int(args[5])
+        except ValueError:
+            text("迭代轮数需为整数")
+            return
+
+    overrides = None
+    if len(args) > 6 and args[6]:
+        try:
+            overrides = json.loads(args[6])
+        except json.JSONDecodeError as exc:
+            text(f"LightGBM 参数 JSON 解析失败: {exc}")
+            return
+
+    summary_lines = [
+        "训练配置:",
+        f"- 训练向量: {train_vectors}",
+        f"- 训练标签: {train_jsonl}",
+        f"- 模型输出: {model_output}",
+    ]
+    if valid_vectors and valid_jsonl:
+        summary_lines.append(f"- 验证向量: {valid_vectors}")
+        summary_lines.append(f"- 验证标签: {valid_jsonl}")
+    if num_boost_round is not None:
+        summary_lines.append(f"- 迭代轮数: {num_boost_round}")
+    if overrides is not None:
+        summary_lines.append(f"- LightGBM 覆盖参数: {overrides}")
+    text("<br/>".join(summary_lines))
+
+    try:
+        train_ember_model(
+            train_vectors=train_vectors,
+            train_jsonl=train_jsonl,
+            model_output=model_output,
+            valid_vectors=valid_vectors,
+            valid_jsonl=valid_jsonl,
+            num_boost_round=num_boost_round,
+            overrides=overrides,
+            progress_callback=progress,
+            text_callback=text,
+        )
+        text("模型训练完成")
+    except Exception as exc:  # pragma: no cover - runtime errors
+        text(f"模型训练失败: {exc}")
 
 
 # Register placeholders for remaining buttons -------------------------------
 for _name in [
     "数据清洗",
-    "训练模型",
     "测试模型",
     "静态检测",
     "获取良性",
