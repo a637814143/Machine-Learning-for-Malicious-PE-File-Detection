@@ -114,6 +114,24 @@ Progress updates and validation metrics are streamed through the GUI task
 system. The resulting LightGBM model is saved in the standard text format and
 can be loaded via ``lightgbm.Booster(model_file=...)`` for inference.
 
+### Training from the GUI
+
+The GUI task named **“训练模型”** accepts positional arguments. Provide them in
+the following order when prompted:
+
+1. Training vector file (``.npy``)
+2. Training labels JSONL
+3. Output path for the LightGBM model
+4. *(Optional)* Validation vector file
+5. *(Optional)* Validation labels JSONL
+6. *(Optional)* Number of boosting rounds (integer; defaults to EMBER’s 4096)
+7. *(Optional)* JSON string with LightGBM parameter overrides, e.g.
+   ``{"learning_rate": 0.05, "num_leaves": 64}``
+
+After the arguments are submitted, the task summary lists the resolved paths
+and overrides before training starts. Progress updates and evaluation metrics
+are streamed to the task log.
+
 ## Summary
 
 This project provides a structured approach for detecting malicious PE files
