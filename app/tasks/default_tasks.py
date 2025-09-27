@@ -20,6 +20,7 @@ from core.feature_engineering import (
     extract_from_directory,
     vectorize_feature_file,
 )
+from core.modeling.trainer import train_ember_model_from_npy
 
 try:
     import pefile
@@ -120,10 +121,58 @@ def feature_vector_task(args, progress, text):
     text("特征向量化完成")
 
 
+@register_task("训练模型")
+def train_model_task(args, progress, text):
+    """Train an EMBER 兼容的 LightGBM 模型."""
+    if len(args) < 2:
+        text("需要提供特征向量 .npy 文件路径和模型保存目录")
+        return
+
+    npy_path, output_dir = args[0], args[1]
+    thread_count = None
+    if len(args) > 2:
+        try:
+            thread_count = int(args[2])
+        except (TypeError, ValueError):
+            thread_count = None
+
+    lgbm_params = {}
+    if thread_count is not None and thread_count > 0:
+        lgbm_params["num_threads"] = thread_count
+
+    progress(0)
+    text("准备开始模型训练……")
+
+    try:
+        result = train_ember_model_from_npy(
+            npy_path,
+            output_dir,
+            lgbm_params=lgbm_params or None,
+            progress_callback=progress,
+            status_callback=text,
+        )
+    except Exception as exc:  # pragma: no cover - runtime feedback
+        text(f"模型训练失败: {exc}")
+        progress(0)
+        return
+
+    metrics = result.get("metrics", {})
+    lines = [
+        "模型训练完成！",
+        f"模型文件: {result.get('model_path', '未知')}",
+        f"元数据: {result.get('metadata_path', '未知')}",
+        "验证集指标:",
+        f"  - AUC: {metrics.get('auc', 'N/A')}",
+        f"  - Accuracy: {metrics.get('accuracy', 'N/A')}",
+        f"  - F1-score: {metrics.get('f1', 'N/A')}",
+        f"  - 最佳迭代: {metrics.get('best_iteration', 'N/A')}",
+    ]
+    text("\n".join(lines))
+
+
 # Register placeholders for remaining buttons -------------------------------
 for _name in [
     "数据清洗",
-    "训练模型",
     "测试模型",
     "静态检测",
     "获取良性",
