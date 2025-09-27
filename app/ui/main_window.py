@@ -250,7 +250,7 @@ class MachineLearningPEUI(QtWidgets.QDialog):
         self.modelComboBox = QtWidgets.QComboBox(self)
         self.modelComboBox.setGeometry(1250, 740, 131, 21)
         self.modelComboBox.addItems(["随机森林", "SNN", "深度树"])
-        
+
         # 线程数配置
         self.threadCountLabel = QtWidgets.QLabel("线程数:", self)
         self.threadCountLabel.setGeometry(1245, 810, 60, 21)
@@ -307,23 +307,25 @@ class MachineLearningPEUI(QtWidgets.QDialog):
             params.append(self.inputLineEdit.text())
         if self.useOutputCheckBox.isChecked():
             params.append(self.outputLineEdit.text())
-        
+
         # 添加线程数参数
         thread_count = self.threadCountSpinBox.value()
         params.append(str(thread_count))
-        
+
         return tuple(params)
 
     def start_task(self, task_name: str):
         """启动任务"""
         params = self._get_params()
-        
+
         # 检查必要参数
         if task_name == "文件信息" and not self.useInputCheckBox.isChecked():
             self._append_result_text("请选择输入文件")
             return
-        
-        if task_name in ["提取特征", "特征转换"] and not (self.useInputCheckBox.isChecked() and self.useOutputCheckBox.isChecked()):
+
+        if task_name in ["提取特征", "特征转换", "训练模型"] and not (
+                self.useInputCheckBox.isChecked() and self.useOutputCheckBox.isChecked()
+        ):
             self._append_result_text("请选择输入和输出路径")
             return
 
@@ -341,7 +343,11 @@ class MachineLearningPEUI(QtWidgets.QDialog):
         worker.text_signal.connect(self._append_result_text_or_html)
 
         # 显示启动信息
-        thread_info = f"（线程数: {self.threadCountSpinBox.value()}）" if task_name in ["提取特征", "特征转换"] else ""
+        thread_info = (
+            f"（线程数: {self.threadCountSpinBox.value()}）"
+            if task_name in ["提取特征", "特征转换", "训练模型"]
+            else ""
+        )
         self._append_result_text(f"启动任务: {task_name} {thread_info}")
         worker.start()
 
