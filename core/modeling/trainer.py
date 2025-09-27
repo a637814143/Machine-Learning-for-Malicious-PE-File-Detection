@@ -1,0 +1,219 @@
+"""Training utilities that operate on NumPy vector files."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+
+import numpy as np
+from numpy.lib.npyio import NpzFile
+
+try:  # pragma: no cover - optional dependency during tests
+    import lightgbm as lgb  # type: ignore
+except Exception:  # pragma: no cover
+    lgb = None  # type: ignore
+
+from core.feature_engineering.vectorization import VECTOR_SIZE
+from .model_factory import LightGBMConfig, build_ember_lightgbm_config
+
+
+@dataclass(frozen=True)
+class DatasetBundle:
+    """Container holding vectors and labels for a dataset split."""
+
+    vectors: np.ndarray
+    labels: np.ndarray
+
+    def __post_init__(self) -> None:
+        if self.vectors.ndim != 2:
+            raise ValueError(
+                "向量文件维度异常: 期望二维数组, got "
+                f"{self.vectors.ndim}-d"
+            )
+        if self.vectors.shape[0] != self.labels.shape[0]:
+            raise ValueError(
+                "向量和标签数量不一致: "
+                f"vectors={self.vectors.shape[0]} labels={self.labels.shape[0]}"
+            )
+        if self.vectors.shape[1] != VECTOR_SIZE:
+            raise ValueError(
+                f"特征维度与 EMBER 不匹配: "
+                f"got {self.vectors.shape[1]}, expected {VECTOR_SIZE}"
+            )
+
+
+def _require_lightgbm() -> None:
+    if lgb is None:  # pragma: no cover - runtime guard
+        raise ImportError(
+            "缺少 lightgbm 库，无法训练模型。请运行 'pip install lightgbm' 后重试。"
+        )
+
+
+def _normalise_vector_array(array: np.ndarray) -> np.ndarray:
+    if array.ndim != 2:
+        raise ValueError("向量数组维度异常，应为二维数组")
+    return array.astype(np.float32, copy=False)
+
+
+def _normalise_label_array(array: np.ndarray) -> np.ndarray:
+    if array.ndim != 1:
+        raise ValueError("标签数组维度异常，应为一维数组")
+    return array.astype(np.int64, copy=False)
+
+
+def _extract_from_saved_object(obj: Any) -> Tuple[np.ndarray, np.ndarray]:
+    """Convert the object produced by ``np.load`` into feature/label arrays."""
+
+    if isinstance(obj, np.ndarray) and obj.dtype != object:
+        # Legacy format that only stores features. Labels must be provided
+        # elsewhere so raise an informative error.
+        raise ValueError(
+            "加载到的向量文件缺少标签信息，请重新生成或升级数据文件。"
+        )
+
+    if isinstance(obj, NpzFile):
+        if "x" not in obj or "y" not in obj:
+            raise ValueError("保存的 npz 文件缺少 'x' 或 'y' 数组")
+        return _normalise_vector_array(obj["x"]), _normalise_label_array(obj["y"])
+
+    if isinstance(obj, np.ndarray) and obj.dtype == object:
+        if obj.shape == ():
+            obj = obj.item()
+        else:
+            obj = obj.tolist()
+
+    if isinstance(obj, dict):
+        features = obj.get("x")
+        labels = obj.get("y")
+        if features is None or labels is None:
+            raise ValueError("保存的字典缺少 'x' 或 'y' 键")
+        return _normalise_vector_array(np.asarray(features)), _normalise_label_array(
+            np.asarray(labels)
+        )
+
+    if isinstance(obj, (list, tuple)) and len(obj) == 2:
+        features, labels = obj
+        return _normalise_vector_array(np.asarray(features)), _normalise_label_array(
+            np.asarray(labels)
+        )
+
+    raise TypeError(
+        "不支持的向量文件格式，请使用最新的向量化脚本重新生成数据。"
+    )
+
+
+def _load_dataset_bundle(vector_file: Path) -> DatasetBundle:
+    if not vector_file.exists():
+        raise FileNotFoundError(f"向量文件不存在: {vector_file}")
+
+    loaded = np.load(vector_file, allow_pickle=True)
+    features, labels = _extract_from_saved_object(loaded)
+    return DatasetBundle(features, labels)
+
+
+def _prepare_valid_sets(
+    valid_bundles: Sequence[Tuple[str, DatasetBundle]]
+) -> Tuple[List[Any], List[str]]:
+    _require_lightgbm()
+    valid_sets: List[lgb.Dataset] = []
+    valid_names: List[str] = []
+    for name, bundle in valid_bundles:
+        valid_sets.append(
+            lgb.Dataset(bundle.vectors, label=bundle.labels, free_raw_data=False)
+        )
+        valid_names.append(name)
+    return valid_sets, valid_names
+
+
+def _make_progress_callback(
+    total_rounds: int,
+    progress_callback: Optional[callable],
+    text_callback: Optional[callable],
+    report_every: int = 10,
+) -> Optional[Any]:
+    _require_lightgbm()
+    if progress_callback is None and text_callback is None:
+        return None
+
+    def _callback(env) -> None:
+        iteration = env.iteration + 1
+        if progress_callback is not None:
+            progress = int(min(iteration / max(total_rounds, 1), 1.0) * 100)
+            progress_callback(progress)
+        if text_callback is not None and iteration % report_every == 0:
+            metrics = []
+            for name, loss, *_ in env.evaluation_result_list:
+                metrics.append(f"{name}={loss:.4f}")
+            metric_str = ", ".join(metrics) if metrics else "迭代完成"
+            text_callback(f"训练进度 {iteration}/{total_rounds}: {metric_str}")
+
+    _callback.order = 10  # type: ignore[attr-defined]
+    return _callback
+
+
+def train_ember_model_from_npy(
+    train_vectors: Path,
+    *,
+    valid_vectors: Optional[Path] = None,
+    model_output: Optional[Path] = None,
+    overrides: Optional[Mapping[str, Any]] = None,
+    num_boost_round: Optional[int] = None,
+    early_stopping_rounds: Optional[int] = 50,
+    progress_callback=None,
+    text_callback=None,
+) -> Any:
+    """Train a LightGBM model using feature/label arrays stored in ``.npy`` files."""
+
+    _require_lightgbm()
+
+    train_bundle = _load_dataset_bundle(train_vectors)
+
+    valid_bundles: List[Tuple[str, DatasetBundle]] = []
+    if valid_vectors is not None:
+        valid_bundle = _load_dataset_bundle(valid_vectors)
+        valid_bundles.append(("valid", valid_bundle))
+
+    config: LightGBMConfig = build_ember_lightgbm_config(
+        overrides=overrides,
+        num_boost_round=num_boost_round,
+        early_stopping_rounds=early_stopping_rounds,
+    )
+
+    dtrain = lgb.Dataset(train_bundle.vectors, label=train_bundle.labels, free_raw_data=False)
+    valid_sets, valid_names = _prepare_valid_sets(valid_bundles)
+
+    callbacks: List[Any] = []
+    progress_cb = _make_progress_callback(
+        config.num_boost_round,
+        progress_callback,
+        text_callback,
+    )
+    if progress_cb is not None:
+        callbacks.append(progress_cb)
+
+    train_kwargs: Dict[str, Any] = {
+        "num_boost_round": config.num_boost_round,
+        "valid_sets": valid_sets or None,
+        "valid_names": valid_names or None,
+        "callbacks": callbacks,
+    }
+    if config.early_stopping_rounds is not None:
+        train_kwargs["early_stopping_rounds"] = config.early_stopping_rounds
+
+    booster = lgb.train(
+        config.params,
+        dtrain,
+        **train_kwargs,
+    )
+
+    if model_output is not None:
+        model_output.parent.mkdir(parents=True, exist_ok=True)
+        booster.save_model(str(model_output))
+        if text_callback is not None:
+            text_callback(f"模型已保存到 {model_output}")
+
+    if progress_callback is not None:
+        progress_callback(100)
+
+    return booster
