@@ -33,10 +33,16 @@ class ThreadSafeVectorWriter:
         self.vectors = []
         self.written_count = 0
 
-    def add_vector(self, vector: np.ndarray, index: int, path: str = ""):
+    def add_vector(
+        self,
+        vector: np.ndarray,
+        index: int,
+        label: int,
+        path: str = "",
+    ):
         """添加向量到缓存"""
         with self.lock:
-            self.vectors.append((index, vector, path))
+            self.vectors.append((index, vector, label, path))
             self.written_count += 1
             if path:
                 self.text_callback(f"已缓存向量 {self.written_count}: {Path(path).name}")
@@ -51,13 +57,26 @@ class ThreadSafeVectorWriter:
             # 按索引排序
             self.vectors.sort(key=lambda x: x[0])
 
-            # 提取向量并组合成数组
-            vectors_only = [vec for _, vec, _ in self.vectors]
-            array = np.vstack(vectors_only) if vectors_only else np.empty((0, self.vector_size), dtype=np.float32)
+            # 提取向量、标签
+            vectors_only = [vec for _, vec, _, _ in self.vectors]
+            labels_only = [label for _, _, label, _ in self.vectors]
 
-            # 写入文件
-            np.save(self.save_path, array)
-            self.text_callback(f"向量化完成，共写入 {len(vectors_only)} 个向量到 {self.save_path}")
+            features_array = (
+                np.vstack(vectors_only)
+                if vectors_only
+                else np.empty((0, self.vector_size), dtype=np.float32)
+            )
+            labels_array = (
+                np.asarray(labels_only, dtype=np.int64)
+                if labels_only
+                else np.empty((0,), dtype=np.int64)
+            )
+
+            # 写入文件，保持特征和标签对应
+            np.save(self.save_path, {"x": features_array, "y": labels_array})
+            self.text_callback(
+                f"向量化完成，共写入 {len(vectors_only)} 个向量到 {self.save_path}"
+            )
 
     def get_written_count(self):
         """获取已写入的数量"""
@@ -423,7 +442,16 @@ def vectorize_feature_file(
     def process_line(line_data, vector_writer=None):
         """处理单行数据的向量化"""
         idx, line = line_data
-        record = json.loads(line)
+
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError as exc:
+            label = 0
+            path = f"line_{idx}"
+            if vector_writer:
+                zero_vec = np.zeros(VECTOR_SIZE, dtype=np.float32)
+                vector_writer.add_vector(zero_vec, idx, label, path)
+            return idx, None, label, path, False, str(exc)
 
         features = record.get("features")
         if not features:
@@ -438,6 +466,14 @@ def vectorize_feature_file(
             else:
                 features = {}
 
+        raw_label = record.get("label")
+        if raw_label is None and isinstance(features, dict):
+            raw_label = features.get("label")
+        try:
+            label = int(raw_label) if raw_label is not None else 0
+        except (TypeError, ValueError):
+            label = 0
+
         path = (
             record.get("path")
             or record.get("sha256")
@@ -450,16 +486,16 @@ def vectorize_feature_file(
 
             # 实时写入向量
             if vector_writer:
-                vector_writer.add_vector(vec, idx, path)
+                vector_writer.add_vector(vec, idx, label, path)
 
-            return idx, vec, path, True, None
+            return idx, vec, label, path, True, None
         except Exception as e:
             # 失败时也写入零向量
             if vector_writer:
                 zero_vec = np.zeros(VECTOR_SIZE, dtype=np.float32)
-                vector_writer.add_vector(zero_vec, idx, path)
+                vector_writer.add_vector(zero_vec, idx, label, path)
 
-            return idx, None, path, False, str(e)
+            return idx, None, label, path, False, str(e)
 
     # 创建实时向量写入器
     vector_writer = None
@@ -474,6 +510,7 @@ def vectorize_feature_file(
 
     # 使用线程池并行处理
     vectors = [None] * total if not realtime_write else None  # 批量模式才需要预分配
+    labels = [None] * total if not realtime_write else None
     successful = 0
     failed = 0
 
@@ -489,16 +526,20 @@ def vectorize_feature_file(
             for future in as_completed(future_to_idx):
                 idx = future_to_idx[future]
                 try:
-                    result_idx, vec, path, success, error = future.result()
-                    
+                    result_idx, vec, label, path, success, error = future.result()
+
                     if success:
                         if not realtime_write:
                             vectors[result_idx] = vec
+                            labels[result_idx] = label
                         successful += 1
                         text_callback(f"已转换 {path}")
                     else:
                         if not realtime_write:
-                            vectors[result_idx] = np.zeros(VECTOR_SIZE, dtype=np.float32)
+                            vectors[result_idx] = np.zeros(
+                                VECTOR_SIZE, dtype=np.float32
+                            )
+                            labels[result_idx] = label
                         failed += 1
                         text_callback(f"转换失败 {path}: {error}")
                     
@@ -508,6 +549,7 @@ def vectorize_feature_file(
                 except Exception as e:
                     if not realtime_write:
                         vectors[idx] = np.zeros(VECTOR_SIZE, dtype=np.float32)
+                        labels[idx] = 0
                     failed += 1
                     text_callback(f"处理异常 line_{idx}: {str(e)}")
                     progress_callback(int((successful + failed) / total * 100))
@@ -516,9 +558,18 @@ def vectorize_feature_file(
         if not realtime_write:
             text_callback("开始批量写入向量...")
             # 移除None值并转换为numpy数组
-            vectors = [v for v in vectors if v is not None]
-            array = np.vstack(vectors) if vectors else np.empty((0, VECTOR_SIZE), dtype=np.float32)
-            np.save(save_path, array)
+            combined = [
+                (vec, label)
+                for vec, label in zip(vectors, labels)
+                if vec is not None and label is not None
+            ]
+            if combined:
+                array = np.vstack([vec for vec, _ in combined])
+                label_array = np.asarray([label for _, label in combined], dtype=np.int64)
+            else:
+                array = np.empty((0, VECTOR_SIZE), dtype=np.float32)
+                label_array = np.empty((0,), dtype=np.int64)
+            np.save(save_path, {"x": array, "y": label_array})
         else:
             # 实时写入模式，将所有向量写入文件
             vector_writer.write_to_file()
