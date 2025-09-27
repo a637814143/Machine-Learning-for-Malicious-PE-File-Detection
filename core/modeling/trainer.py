@@ -157,6 +157,7 @@ def train_ember_model_from_npy(
     *,
     valid_vectors: Optional[Path] = None,
     model_output: Optional[Path] = None,
+    lgbm_params: Optional[Mapping[str, Any]] = None,
     overrides: Optional[Mapping[str, Any]] = None,
     num_boost_round: Optional[int] = None,
     early_stopping_rounds: Optional[int] = 50,
@@ -174,8 +175,16 @@ def train_ember_model_from_npy(
         valid_bundle = _load_dataset_bundle(valid_vectors)
         valid_bundles.append(("valid", valid_bundle))
 
+    combined_overrides: Optional[Mapping[str, Any]] = overrides
+    if overrides is not None and lgbm_params is not None:
+        merged: Dict[str, Any] = dict(lgbm_params)
+        merged.update(overrides)
+        combined_overrides = merged
+    elif overrides is None and lgbm_params is not None:
+        combined_overrides = lgbm_params
+
     config: LightGBMConfig = build_ember_lightgbm_config(
-        overrides=overrides,
+        overrides=combined_overrides,
         num_boost_round=num_boost_round,
         early_stopping_rounds=early_stopping_rounds,
     )
