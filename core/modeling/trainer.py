@@ -1,9 +1,9 @@
-
 """Training utilities that operate on NumPy vector files."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+import inspect
 import numbers
 import os
 from os import PathLike
@@ -12,9 +12,11 @@ from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Seque
 
 import numpy as np
 from numpy.lib.npyio import NpzFile
-from scripts.FILE_NAME import NAME_RULE
-import lightgbm as lgb
 
+try:  # pragma: no cover - optional dependency during tests
+    import lightgbm as lgb  # type: ignore
+except Exception:  # pragma: no cover
+    lgb = None  # type: ignore
 
 from core.feature_engineering.vectorization import VECTOR_SIZE
 from .model_factory import LightGBMConfig, build_ember_lightgbm_config
@@ -50,6 +52,17 @@ def _require_lightgbm() -> None:
         raise ImportError(
             "缺少 lightgbm 库，无法训练模型。请运行 'pip install lightgbm' 后重试。"
         )
+
+
+def _lightgbm_train_supports_parameter(name: str) -> bool:
+    """Return whether ``lgb.train`` accepts the given keyword argument."""
+
+    _require_lightgbm()
+    try:
+        signature = inspect.signature(lgb.train)
+    except (TypeError, ValueError):  # pragma: no cover - CPython internal error
+        return True
+    return name in signature.parameters
 
 
 def _normalise_vector_array(array: np.ndarray) -> np.ndarray:
@@ -107,7 +120,7 @@ def _extract_from_saved_object(obj: Any) -> Tuple[np.ndarray, np.ndarray]:
 
 Pathish = Union[str, Path, PathLike[str]]
 
-DEFAULT_MODEL_FILENAME = f"{NAME_RULE(only_time=1)}-model.txt"
+DEFAULT_MODEL_FILENAME = "model.txt"
 
 
 def _coerce_path(value: Pathish) -> Path:
@@ -276,7 +289,7 @@ def _make_progress_callback(
             for name, loss, *_ in env.evaluation_result_list:
                 metrics.append(f"{name}={_format_metric_value(loss)}")
             metric_str = ", ".join(metrics) if metrics else "迭代完成"
-            # text_callback(f"训练进度 {iteration}/{total_rounds}: {metric_str}")
+            text_callback(f"训练进度 {iteration}/{total_rounds}: {metric_str}")
 
     _callback.order = 10  # type: ignore[attr-defined]
     return _callback
@@ -364,12 +377,24 @@ def train_ember_model_from_npy(
         train_kwargs["valid_sets"] = valid_sets
         train_kwargs["valid_names"] = valid_names
 
-    early_stopping_fallback: Optional[Any] = None
+    fallback_callback: Optional[Any] = None
+    fallback_applied = False
     if config.early_stopping_rounds is not None:
-        train_kwargs["early_stopping_rounds"] = config.early_stopping_rounds
         if hasattr(lgb, "early_stopping"):
-            early_stopping_fallback = lgb.early_stopping(
-                config.early_stopping_rounds
+            fallback_callback = lgb.early_stopping(config.early_stopping_rounds)
+
+        if _lightgbm_train_supports_parameter("early_stopping_rounds"):
+            train_kwargs["early_stopping_rounds"] = config.early_stopping_rounds
+        elif fallback_callback is not None:
+            callbacks.append(fallback_callback)
+            fallback_applied = True
+            if text_callback is not None:
+                text_callback(
+                    "当前 LightGBM 版本不支持 early_stopping_rounds 参数，已改用回调实现提前停止。"
+                )
+        elif text_callback is not None:
+            text_callback(
+                "当前 LightGBM 版本不支持提前停止参数，将继续训练直至最大轮次。"
             )
 
     try:
@@ -387,13 +412,14 @@ def train_ember_model_from_npy(
             raise
 
         train_kwargs.pop("early_stopping_rounds", None)
-        if early_stopping_fallback is not None:
-            callbacks.append(early_stopping_fallback)
+        if fallback_callback is not None and not fallback_applied:
+            callbacks.append(fallback_callback)
+            fallback_applied = True
             if text_callback is not None:
                 text_callback(
                     "当前 LightGBM 版本不支持 early_stopping_rounds 参数，已改用回调实现提前停止。"
                 )
-        elif text_callback is not None:
+        elif text_callback is not None and not fallback_applied:
             text_callback(
                 "当前 LightGBM 版本不支持提前停止参数，将继续训练直至最大轮次。"
             )
