@@ -261,8 +261,9 @@ def train_ember_model_from_npy(
 
     if model_output is not None:
         output_path = _resolve_model_output_path(model_output)
-        print(output_path)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
+        parent = output_path.parent
+        if not parent.exists():
+            parent.mkdir(parents=True, exist_ok=True)
         booster.save_model(str(output_path))
         if text_callback is not None:
             text_callback(f"模型已保存到 {output_path}")
