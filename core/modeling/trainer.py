@@ -266,6 +266,16 @@ def train_ember_model_from_npy(
 
     train_bundle = _load_dataset_bundle(train_vectors)
 
+    unique_labels = np.unique(train_bundle.labels)
+    if unique_labels.size < 2:
+        message = (
+            "训练数据集中仅包含单一类别，无法训练模型。"
+            " 请检查标注或重新生成包含正负样本的数据。"
+        )
+        if text_callback is not None:
+            text_callback(message)
+        raise ValueError(message)
+
     valid_bundles: List[Tuple[str, DatasetBundle]] = []
     if valid_vectors is not None:
         valid_bundle = _load_dataset_bundle(valid_vectors)
