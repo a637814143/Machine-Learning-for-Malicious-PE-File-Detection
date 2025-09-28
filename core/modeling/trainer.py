@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from os import PathLike
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
 import numpy as np
 from numpy.lib.npyio import NpzFile
@@ -103,11 +104,21 @@ def _extract_from_saved_object(obj: Any) -> Tuple[np.ndarray, np.ndarray]:
     )
 
 
-def _load_dataset_bundle(vector_file: Path) -> DatasetBundle:
-    if not vector_file.exists():
-        raise FileNotFoundError(f"向量文件不存在: {vector_file}")
+Pathish = Union[str, Path, PathLike[str]]
 
-    loaded = np.load(vector_file, allow_pickle=True)
+
+def _coerce_path(value: Pathish) -> Path:
+    if isinstance(value, Path):
+        return value
+    return Path(value)
+
+
+def _load_dataset_bundle(vector_file: Pathish) -> DatasetBundle:
+    path = _coerce_path(vector_file)
+    if not path.exists():
+        raise FileNotFoundError(f"向量文件不存在: {path}")
+
+    loaded = np.load(path, allow_pickle=True)
     features, labels = _extract_from_saved_object(loaded)
     return DatasetBundle(features, labels)
 
@@ -153,10 +164,10 @@ def _make_progress_callback(
 
 
 def train_ember_model_from_npy(
-    train_vectors: Path,
-    valid_vectors: Optional[Path] = None,
+    train_vectors: Pathish,
+    valid_vectors: Optional[Pathish] = None,
     *,
-    model_output: Optional[Path] = None,
+    model_output: Optional[Pathish] = None,
     lgbm_params: Optional[Mapping[str, Any]] = None,
     overrides: Optional[Mapping[str, Any]] = None,
     num_boost_round: Optional[int] = None,
@@ -232,10 +243,11 @@ def train_ember_model_from_npy(
     )
 
     if model_output is not None:
-        model_output.parent.mkdir(parents=True, exist_ok=True)
-        booster.save_model(str(model_output))
+        output_path = _coerce_path(model_output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        booster.save_model(str(output_path))
         if text_callback is not None:
-            text_callback(f"模型已保存到 {model_output}")
+            text_callback(f"模型已保存到 {output_path}")
 
     if progress_callback is not None:
         progress_callback(100)
