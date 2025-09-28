@@ -1,3 +1,4 @@
+
 """Training utilities that operate on NumPy vector files."""
 
 from __future__ import annotations
@@ -5,7 +6,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from os import PathLike
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, Union
 
 import numpy as np
 from numpy.lib.npyio import NpzFile
@@ -119,14 +120,20 @@ def _resolve_vector_file(path: Path) -> Path:
     """Return a concrete vector file path, supporting directory inputs."""
 
     if path.exists() and path.is_dir():
-        candidates = sorted(
-            [
-                candidate
-                for pattern in ("*.npy", "*.npz")
-                for candidate in path.glob(pattern)
-            ],
-            key=lambda p: p.stat().st_mtime,
-        )
+        patterns = ("*.npy", "*.npz")
+
+        def _collect_candidates(search: Callable[[str], Iterable[Path]]) -> List[Path]:
+            files: List[Path] = []
+            for pattern in patterns:
+                files.extend(candidate for candidate in search(pattern) if candidate.is_file())
+            return files
+
+        candidates = _collect_candidates(path.glob)
+        if not candidates:
+            candidates = _collect_candidates(path.rglob)
+
+        candidates.sort(key=lambda p: p.stat().st_mtime)
+
         if not candidates:
             raise FileNotFoundError(
                 f"指定的目录中未找到向量文件: {path}"
