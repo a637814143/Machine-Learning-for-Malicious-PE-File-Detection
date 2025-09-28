@@ -4,8 +4,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import inspect
 import numbers
+import os
 from os import PathLike
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, Union
@@ -155,7 +155,11 @@ def _load_dataset_bundle(vector_file: Pathish) -> DatasetBundle:
         raise FileNotFoundError(f"向量文件不存在: {path}")
 
     loaded = np.load(path, allow_pickle=True)
-    features, labels = _extract_from_saved_object(loaded)
+    try:
+        features, labels = _extract_from_saved_object(loaded)
+    finally:
+        if isinstance(loaded, NpzFile):
+            loaded.close()
     return DatasetBundle(features, labels)
 
 
@@ -173,15 +177,29 @@ def _resolve_model_output_path(model_output: Pathish) -> Path:
     return output_path / DEFAULT_MODEL_FILENAME
 
 
-def _train_supports_early_stopping() -> bool:
-    """Return True when ``lgb.train`` accepts ``early_stopping_rounds``."""
+def _ensure_model_path_writable(output_path: Path) -> Path:
+    """Ensure the final LightGBM model path is writable before saving."""
 
-    _require_lightgbm()
+    parent = output_path.parent
     try:
-        signature = inspect.signature(lgb.train)
-    except (TypeError, ValueError):  # pragma: no cover - extremely old versions
-        return False
-    return "early_stopping_rounds" in signature.parameters
+        parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise PermissionError(f"无法创建模型保存目录: {parent}") from exc
+
+    pre_existing = output_path.exists()
+    try:
+        with output_path.open("a+b"):
+            pass
+    except OSError as exc:
+        raise PermissionError(f"无法写入模型文件: {output_path}") from exc
+    else:
+        if not pre_existing:
+            try:
+                output_path.unlink()
+            except OSError:
+                pass
+
+    return output_path
 
 
 def _prepare_valid_sets(
@@ -310,34 +328,66 @@ def train_ember_model_from_npy(
 
     train_kwargs: Dict[str, Any] = {
         "num_boost_round": config.num_boost_round,
-        "valid_sets": valid_sets or None,
-        "valid_names": valid_names or None,
         "callbacks": callbacks,
     }
+    if valid_sets:
+        train_kwargs["valid_sets"] = valid_sets
+        train_kwargs["valid_names"] = valid_names
+
+    early_stopping_fallback: Optional[Any] = None
     if config.early_stopping_rounds is not None:
-        if _train_supports_early_stopping():
-            train_kwargs["early_stopping_rounds"] = config.early_stopping_rounds
-        elif hasattr(lgb, "early_stopping"):
-            callbacks.append(lgb.early_stopping(config.early_stopping_rounds))
+        train_kwargs["early_stopping_rounds"] = config.early_stopping_rounds
+        if hasattr(lgb, "early_stopping"):
+            early_stopping_fallback = lgb.early_stopping(
+                config.early_stopping_rounds
+            )
+
+    try:
+        booster = lgb.train(
+            config.params,
+            dtrain,
+            **train_kwargs,
+        )
+    except TypeError as exc:
+        should_retry = (
+            config.early_stopping_rounds is not None
+            and "early_stopping_rounds" in str(exc)
+        )
+        if not should_retry:
+            raise
+
+        train_kwargs.pop("early_stopping_rounds", None)
+        if early_stopping_fallback is not None:
+            callbacks.append(early_stopping_fallback)
+            if text_callback is not None:
+                text_callback(
+                    "当前 LightGBM 版本不支持 early_stopping_rounds 参数，已改用回调实现提前停止。"
+                )
         elif text_callback is not None:
             text_callback(
                 "当前 LightGBM 版本不支持提前停止参数，将继续训练直至最大轮次。"
             )
 
-    booster = lgb.train(
-        config.params,
-        dtrain,
-        **train_kwargs,
-    )
+        booster = lgb.train(
+            config.params,
+            dtrain,
+            **train_kwargs,
+        )
 
     if model_output is not None:
-        output_path = _resolve_model_output_path(model_output)
-        parent = output_path.parent
-        if not parent.exists():
-            parent.mkdir(parents=True, exist_ok=True)
-        booster.save_model(str(output_path))
-        if text_callback is not None:
-            text_callback(f"模型已保存到 {output_path}")
+        output_path = _ensure_model_path_writable(
+            _resolve_model_output_path(model_output)
+        )
+        try:
+            booster.save_model(os.fspath(output_path))
+        except Exception as exc:
+            message = f"模型保存失败: {exc}"
+            if text_callback is not None:
+                text_callback(message)
+            raise
+        else:
+            if text_callback is not None:
+                text_callback(f"模型已保存到 {output_path}")
 
     if progress_callback is not None:
         progress_callback(100)
