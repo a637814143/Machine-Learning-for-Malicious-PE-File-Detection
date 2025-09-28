@@ -176,6 +176,38 @@ def _resolve_model_output_path(model_output: Pathish) -> Path:
     return output_path / DEFAULT_MODEL_FILENAME
 
 
+def _describe_model_output_path(output_path: Path) -> str:
+    """Return a human readable description for debugging model persistence."""
+
+    description_parts = [f"目标文件: {output_path}"]
+
+    parent = output_path.parent
+    try:
+        parent_exists = parent.exists()
+    except OSError:
+        parent_exists = False
+    description_parts.append(
+        f"父目录: {parent} (存在: {'是' if parent_exists else '否'})"
+    )
+
+    try:
+        if output_path.exists():
+            try:
+                size = output_path.stat().st_size
+            except OSError:
+                size = None
+            if size is not None:
+                description_parts.append(f"已存在文件 (大小: {size} 字节)")
+            else:
+                description_parts.append("已存在文件 (大小未知)")
+        else:
+            description_parts.append("文件不存在，将在保存时创建")
+    except OSError:
+        description_parts.append("无法确定文件是否存在")
+
+    return ", ".join(description_parts)
+
+
 def _ensure_model_path_writable(output_path: Path) -> Path:
     """Ensure the final LightGBM model path is writable before saving."""
 
@@ -374,9 +406,23 @@ def train_ember_model_from_npy(
         )
 
     if model_output is not None:
-        output_path = _ensure_model_path_writable(
-            _resolve_model_output_path(model_output)
-        )
+        resolved_output = _resolve_model_output_path(model_output)
+        if text_callback is not None:
+            text_callback(
+                "模型保存路径分析: "
+                f"{_describe_model_output_path(resolved_output)}"
+            )
+        try:
+            output_path = _ensure_model_path_writable(resolved_output)
+        except PermissionError as exc:
+            if text_callback is not None:
+                text_callback(f"模型保存路径不可写: {exc}")
+            raise
+        else:
+            if text_callback is not None:
+                text_callback(
+                    f"模型保存路径可写: {output_path}"
+                )
         try:
             booster.save_model(os.fspath(output_path))
         except Exception as exc:
