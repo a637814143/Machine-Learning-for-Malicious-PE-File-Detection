@@ -23,6 +23,8 @@ _EMBER_LIGHTGBM_BASE_PARAMS: Dict[str, Any] = {
     "lambda_l1": 1.0,
     "lambda_l2": 1.0,
     "max_bin": 255,
+    # 禁用 LightGBM 默认的警告输出，避免在 GUI 中干扰用户。
+    "verbosity": -1,
 }
 
 
