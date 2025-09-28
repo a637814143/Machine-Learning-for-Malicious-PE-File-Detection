@@ -299,9 +299,9 @@ def _make_progress_callback(
 
 def train_ember_model_from_npy(
     train_vectors: Pathish,
-    valid_vectors: Optional[Pathish] = None,
-    *,
     model_output: Optional[Pathish] = None,
+    *,
+    valid_vectors: Optional[Pathish] = r"C:/Users/86133/PycharmProjects/machine/data/processed/npy/v.npy",
     lgbm_params: Optional[Mapping[str, Any]] = None,
     overrides: Optional[Mapping[str, Any]] = None,
     num_boost_round: Optional[int] = None,
