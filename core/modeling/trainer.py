@@ -12,11 +12,9 @@ from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Seque
 
 import numpy as np
 from numpy.lib.npyio import NpzFile
+from scripts.FILE_NAME import NAME_RULE
+import lightgbm as lgb
 
-try:  # pragma: no cover - optional dependency during tests
-    import lightgbm as lgb  # type: ignore
-except Exception:  # pragma: no cover
-    lgb = None  # type: ignore
 
 from core.feature_engineering.vectorization import VECTOR_SIZE
 from .model_factory import LightGBMConfig, build_ember_lightgbm_config
@@ -109,7 +107,7 @@ def _extract_from_saved_object(obj: Any) -> Tuple[np.ndarray, np.ndarray]:
 
 Pathish = Union[str, Path, PathLike[str]]
 
-DEFAULT_MODEL_FILENAME = "model.txt"
+DEFAULT_MODEL_FILENAME = f"{NAME_RULE(only_time=1)}-model.txt"
 
 
 def _coerce_path(value: Pathish) -> Path:
@@ -175,6 +173,38 @@ def _resolve_model_output_path(model_output: Pathish) -> Path:
         return output_path
 
     return output_path / DEFAULT_MODEL_FILENAME
+
+
+def _describe_model_output_path(output_path: Path) -> str:
+    """Return a human readable description for debugging model persistence."""
+
+    description_parts = [f"目标文件: {output_path}"]
+
+    parent = output_path.parent
+    try:
+        parent_exists = parent.exists()
+    except OSError:
+        parent_exists = False
+    description_parts.append(
+        f"父目录: {parent} (存在: {'是' if parent_exists else '否'})"
+    )
+
+    try:
+        if output_path.exists():
+            try:
+                size = output_path.stat().st_size
+            except OSError:
+                size = None
+            if size is not None:
+                description_parts.append(f"已存在文件 (大小: {size} 字节)")
+            else:
+                description_parts.append("已存在文件 (大小未知)")
+        else:
+            description_parts.append("文件不存在，将在保存时创建")
+    except OSError:
+        description_parts.append("无法确定文件是否存在")
+
+    return ", ".join(description_parts)
 
 
 def _ensure_model_path_writable(output_path: Path) -> Path:
@@ -246,7 +276,7 @@ def _make_progress_callback(
             for name, loss, *_ in env.evaluation_result_list:
                 metrics.append(f"{name}={_format_metric_value(loss)}")
             metric_str = ", ".join(metrics) if metrics else "迭代完成"
-            text_callback(f"训练进度 {iteration}/{total_rounds}: {metric_str}")
+            # text_callback(f"训练进度 {iteration}/{total_rounds}: {metric_str}")
 
     _callback.order = 10  # type: ignore[attr-defined]
     return _callback
@@ -375,9 +405,23 @@ def train_ember_model_from_npy(
         )
 
     if model_output is not None:
-        output_path = _ensure_model_path_writable(
-            _resolve_model_output_path(model_output)
-        )
+        resolved_output = _resolve_model_output_path(model_output)
+        if text_callback is not None:
+            text_callback(
+                "模型保存路径分析: "
+                f"{_describe_model_output_path(resolved_output)}"
+            )
+        try:
+            output_path = _ensure_model_path_writable(resolved_output)
+        except PermissionError as exc:
+            if text_callback is not None:
+                text_callback(f"模型保存路径不可写: {exc}")
+            raise
+        else:
+            if text_callback is not None:
+                text_callback(
+                    f"模型保存路径可写: {output_path}"
+                )
         try:
             booster.save_model(os.fspath(output_path))
         except Exception as exc:

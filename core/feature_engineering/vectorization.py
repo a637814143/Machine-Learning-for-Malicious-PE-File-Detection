@@ -1,3 +1,4 @@
+
 """Feature vectorisation utilities.
 
 This module mirrors the behaviour of the original EMBER feature pipeline and
@@ -521,7 +522,7 @@ def vectorize_feature_file(
             for data in iter_lines():
                 future = executor.submit(process_line, data, vector_writer)
                 future_to_idx[future] = data[0]
-
+            
             # 收集结果
             for future in as_completed(future_to_idx):
                 idx = future_to_idx[future]
@@ -542,10 +543,10 @@ def vectorize_feature_file(
                             labels[result_idx] = label
                         failed += 1
                         text_callback(f"转换失败 {path}: {error}")
-
+                    
                     # 更新进度
                     progress_callback(int((successful + failed) / total * 100))
-
+                    
                 except Exception as e:
                     if not realtime_write:
                         vectors[idx] = np.zeros(VECTOR_SIZE, dtype=np.float32)
