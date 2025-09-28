@@ -163,10 +163,25 @@ def train_ember_model_from_npy(
     early_stopping_rounds: Optional[int] = 50,
     progress_callback=None,
     text_callback=None,
+    status_callback=None,
 ) -> Any:
     """Train a LightGBM model using feature/label arrays stored in ``.npy`` files."""
 
     _require_lightgbm()
+
+    # ``status_callback`` was used by earlier UI code as the textual channel while
+    # ``text_callback`` is the modern equivalent.  Support both to remain
+    # backwards compatible, mirroring messages to either callback when provided.
+    if text_callback is None and status_callback is not None:
+        text_callback = status_callback
+    elif text_callback is not None and status_callback is not None:
+        original_text_callback = text_callback
+
+        def _fanout(message: str) -> None:
+            original_text_callback(message)
+            status_callback(message)
+
+        text_callback = _fanout
 
     train_bundle = _load_dataset_bundle(train_vectors)
 
