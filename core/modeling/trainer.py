@@ -115,8 +115,33 @@ def _coerce_path(value: Pathish) -> Path:
     return Path(value)
 
 
+def _resolve_vector_file(path: Path) -> Path:
+    """Return a concrete vector file path, supporting directory inputs."""
+
+    if path.exists() and path.is_dir():
+        candidates = sorted(
+            [
+                candidate
+                for pattern in ("*.npy", "*.npz")
+                for candidate in path.glob(pattern)
+            ],
+            key=lambda p: p.stat().st_mtime,
+        )
+        if not candidates:
+            raise FileNotFoundError(
+                f"指定的目录中未找到向量文件: {path}"
+            )
+        return candidates[-1]
+    if not path.exists() and not path.suffix:
+        for extension in (".npy", ".npz"):
+            candidate = path.with_suffix(extension)
+            if candidate.exists():
+                return candidate
+    return path
+
+
 def _load_dataset_bundle(vector_file: Pathish) -> DatasetBundle:
-    path = _coerce_path(vector_file)
+    path = _resolve_vector_file(_coerce_path(vector_file))
     if not path.exists():
         raise FileNotFoundError(f"向量文件不存在: {path}")
 
