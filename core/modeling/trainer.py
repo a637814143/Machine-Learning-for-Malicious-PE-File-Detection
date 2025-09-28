@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass
 import inspect
 import numbers
@@ -397,38 +398,39 @@ def train_ember_model_from_npy(
                 "当前 LightGBM 版本不支持提前停止参数，将继续训练直至最大轮次。"
             )
 
-    try:
-        booster = lgb.train(
-            config.params,
-            dtrain,
-            **train_kwargs,
-        )
-    except TypeError as exc:
-        should_retry = (
-            config.early_stopping_rounds is not None
-            and "early_stopping_rounds" in str(exc)
-        )
-        if not should_retry:
-            raise
-
-        train_kwargs.pop("early_stopping_rounds", None)
-        if fallback_callback is not None and not fallback_applied:
-            callbacks.append(fallback_callback)
-            fallback_applied = True
-            if text_callback is not None:
-                text_callback(
-                    "当前 LightGBM 版本不支持 early_stopping_rounds 参数，已改用回调实现提前停止。"
-                )
-        elif text_callback is not None and not fallback_applied:
-            text_callback(
-                "当前 LightGBM 版本不支持提前停止参数，将继续训练直至最大轮次。"
+    with _redirect_lightgbm_logs(text_callback):
+        try:
+            booster = lgb.train(
+                config.params,
+                dtrain,
+                **train_kwargs,
             )
+        except TypeError as exc:
+            should_retry = (
+                config.early_stopping_rounds is not None
+                and "early_stopping_rounds" in str(exc)
+            )
+            if not should_retry:
+                raise
 
-        booster = lgb.train(
-            config.params,
-            dtrain,
-            **train_kwargs,
-        )
+            train_kwargs.pop("early_stopping_rounds", None)
+            if fallback_callback is not None and not fallback_applied:
+                callbacks.append(fallback_callback)
+                fallback_applied = True
+                if text_callback is not None:
+                    text_callback(
+                        "当前 LightGBM 版本不支持 early_stopping_rounds 参数，已改用回调实现提前停止。"
+                    )
+            elif text_callback is not None and not fallback_applied:
+                text_callback(
+                    "当前 LightGBM 版本不支持提前停止参数，将继续训练直至最大轮次。"
+                )
+
+            booster = lgb.train(
+                config.params,
+                dtrain,
+                **train_kwargs,
+            )
 
     if model_output is not None:
         resolved_output = _resolve_model_output_path(model_output)
@@ -463,3 +465,44 @@ def train_ember_model_from_npy(
         progress_callback(100)
 
     return booster
+
+
+@contextlib.contextmanager
+def _redirect_lightgbm_logs(text_callback):
+    """Route LightGBM 的日志到回调，并禁止其直接输出到控制台。"""
+
+    if lgb is None:  # pragma: no cover - runtime guard
+        yield
+        return
+
+    try:
+        previous_logger = lgb.basic._LOGGER
+        previous_info = lgb.basic._INFO_METHOD_NAME
+        previous_warning = lgb.basic._WARNING_METHOD_NAME
+    except AttributeError:  # pragma: no cover - unexpected LightGBM internals
+        yield
+        return
+
+    class _CallbackLogger:
+        def __init__(self, callback):
+            self._callback = callback
+
+        def info(self, message: str) -> None:
+            if self._callback is not None:
+                self._callback(message)
+
+        def warning(self, message: str) -> None:
+            if self._callback is not None:
+                self._callback(message)
+
+    logger = _CallbackLogger(text_callback)
+    lgb.register_logger(logger)
+    try:
+        yield
+    finally:
+        try:
+            lgb.register_logger(previous_logger, previous_info, previous_warning)
+        except TypeError:  # pragma: no cover - fallback for unexpected logger
+            lgb.basic._LOGGER = previous_logger
+            lgb.basic._INFO_METHOD_NAME = previous_info
+            lgb.basic._WARNING_METHOD_NAME = previous_warning
