@@ -1,9 +1,11 @@
+
 """Training utilities that operate on NumPy vector files."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 import inspect
+import numbers
 from os import PathLike
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, Union
@@ -206,6 +208,16 @@ def _make_progress_callback(
     if progress_callback is None and text_callback is None:
         return None
 
+    def _format_metric_value(value: Any) -> str:
+        if isinstance(value, numbers.Real):
+            return f"{float(value):.4f}"
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            return str(value)
+        else:
+            return f"{numeric:.4f}"
+
     def _callback(env) -> None:
         iteration = env.iteration + 1
         if progress_callback is not None:
@@ -214,7 +226,7 @@ def _make_progress_callback(
         if text_callback is not None and iteration % report_every == 0:
             metrics = []
             for name, loss, *_ in env.evaluation_result_list:
-                metrics.append(f"{name}={loss:.4f}")
+                metrics.append(f"{name}={_format_metric_value(loss)}")
             metric_str = ", ".join(metrics) if metrics else "迭代完成"
             text_callback(f"训练进度 {iteration}/{total_rounds}: {metric_str}")
 
@@ -254,6 +266,16 @@ def train_ember_model_from_npy(
         text_callback = _fanout
 
     train_bundle = _load_dataset_bundle(train_vectors)
+
+    unique_labels = np.unique(train_bundle.labels)
+    if unique_labels.size < 2:
+        message = (
+            "训练数据集中仅包含单一类别，无法训练模型。"
+            " 请检查标注或重新生成包含正负样本的数据。"
+        )
+        if text_callback is not None:
+            text_callback(message)
+        raise ValueError(message)
 
     valid_bundles: List[Tuple[str, DatasetBundle]] = []
     if valid_vectors is not None:
