@@ -155,8 +155,8 @@ def _make_progress_callback(
 
 def train_ember_model_from_npy(
     train_vectors: Path,
-    *,
     valid_vectors: Optional[Path] = None,
+    *,
     model_output: Optional[Path] = None,
     lgbm_params: Optional[Mapping[str, Any]] = None,
     overrides: Optional[Mapping[str, Any]] = None,
