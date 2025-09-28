@@ -23,6 +23,7 @@ _EMBER_LIGHTGBM_BASE_PARAMS: Dict[str, Any] = {
     "lambda_l1": 1.0,
     "lambda_l2": 1.0,
     "max_bin": 255,
+    "verbosity": -1,
 }
 
 
