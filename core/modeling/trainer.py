@@ -1,357 +1,244 @@
 
-"""Model training utilities.
-
-This module provides a high level function for training an EMBER compatible
-LightGBM model from feature vectors stored in NumPy ``.npy`` files.  The
-implementation is intentionally defensive so that it can ingest a variety of
-array layouts that might be produced by different feature extraction
-pipelines in this repository (for example direct ``(X, y)`` tuples, dicts with
-multiple splits, or structured NumPy objects).
-
-Example
--------
-
->>> from core.modeling.trainer import train_ember_model_from_npy
->>> result = train_ember_model_from_npy("features/train_vectors.npy", "models")
->>> print(result["model_path"])
-
-The resulting ``model.txt`` can later be loaded either through LightGBM's
-``Booster`` API or the same helper utilities that operate on the official
-EMBER release.
-"""
+"""Training utilities that operate on NumPy vector files."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
-import json
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, Mapping, MutableMapping, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
-import lightgbm as lgb
 import numpy as np
-from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
-from sklearn.model_selection import train_test_split
+from numpy.lib.npyio import NpzFile
+
+try:  # pragma: no cover - optional dependency during tests
+    import lightgbm as lgb  # type: ignore
+except Exception:  # pragma: no cover
+    lgb = None  # type: ignore
+
+from core.feature_engineering.vectorization import VECTOR_SIZE
+from .model_factory import LightGBMConfig, build_ember_lightgbm_config
 
 
-@dataclass
-class _DatasetSplits:
-    """Container holding the arrays required for training.
+@dataclass(frozen=True)
+class DatasetBundle:
+    """Container holding vectors and labels for a dataset split."""
 
-    Attributes
-    ----------
-    x_train:
-        Training feature matrix.
-    y_train:
-        Training labels.
-    x_valid:
-        Validation feature matrix.
-    y_valid:
-        Validation labels.
-    """
+    vectors: np.ndarray
+    labels: np.ndarray
 
-    x_train: np.ndarray
-    y_train: np.ndarray
-    x_valid: np.ndarray
-    y_valid: np.ndarray
-
-
-def _normalise_key_lookup(keys: Iterable[str]) -> Dict[str, str]:
-    """Create a case-insensitive lookup mapping for ``keys``."""
-
-    return {key.lower(): key for key in keys}
+    def __post_init__(self) -> None:
+        if self.vectors.ndim != 2:
+            raise ValueError(
+                "向量文件维度异常: 期望二维数组, got "
+                f"{self.vectors.ndim}-d"
+            )
+        if self.vectors.shape[0] != self.labels.shape[0]:
+            raise ValueError(
+                "向量和标签数量不一致: "
+                f"vectors={self.vectors.shape[0]} labels={self.labels.shape[0]}"
+            )
+        if self.vectors.shape[1] != VECTOR_SIZE:
+            raise ValueError(
+                f"特征维度与 EMBER 不匹配: "
+                f"got {self.vectors.shape[1]}, expected {VECTOR_SIZE}"
+            )
 
 
-def _ensure_2d(array: np.ndarray) -> np.ndarray:
-    """Ensure ``array`` is two dimensional.
+def _require_lightgbm() -> None:
+    if lgb is None:  # pragma: no cover - runtime guard
+        raise ImportError(
+            "缺少 lightgbm 库，无法训练模型。请运行 'pip install lightgbm' 后重试。"
+        )
 
-    Raises
-    ------
-    ValueError
-        If the array cannot be interpreted as a matrix of feature vectors.
-    """
 
-    if array.ndim == 1:
-        # Interpret a 1-D array as a single sample with ``n`` features.
-        return array.reshape(1, -1)
+def _normalise_vector_array(array: np.ndarray) -> np.ndarray:
     if array.ndim != 2:
-        raise ValueError(f"期望特征矩阵是 2 维的，实际为 {array.ndim} 维")
-    return array
+        raise ValueError("向量数组维度异常，应为二维数组")
+    return array.astype(np.float32, copy=False)
 
 
-def _ensure_1d(array: np.ndarray) -> np.ndarray:
-    """Ensure ``array`` is a flat label vector."""
-
-    if array.ndim == 1:
-        return array
-    if array.ndim == 2 and array.shape[1] == 1:
-        return array.ravel()
-    raise ValueError("标签向量必须是一维的")
+def _normalise_label_array(array: np.ndarray) -> np.ndarray:
+    if array.ndim != 1:
+        raise ValueError("标签数组维度异常，应为一维数组")
+    return array.astype(np.int64, copy=False)
 
 
-def _as_numpy(array: Any) -> np.ndarray:
-    """Convert ``array`` to a NumPy array with ``float32``/``int64`` dtype."""
+def _extract_from_saved_object(obj: Any) -> Tuple[np.ndarray, np.ndarray]:
+    """Convert the object produced by ``np.load`` into feature/label arrays."""
 
-    if isinstance(array, np.ndarray):
-        return array
-    return np.asarray(array)
+    if isinstance(obj, np.ndarray) and obj.dtype != object:
+        # Legacy format that only stores features. Labels must be provided
+        # elsewhere so raise an informative error.
+        raise ValueError(
+            "加载到的向量文件缺少标签信息，请重新生成或升级数据文件。"
+        )
 
+    if isinstance(obj, NpzFile):
+        if "x" not in obj or "y" not in obj:
+            raise ValueError("保存的 npz 文件缺少 'x' 或 'y' 数组")
+        return _normalise_vector_array(obj["x"]), _normalise_label_array(obj["y"])
 
-def _extract_from_mapping(data: Mapping[str, Any]) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray], Optional[np.ndarray]]:
-    """Extract feature/label arrays from a mapping structure."""
+    if isinstance(obj, np.ndarray) and obj.dtype == object:
+        if obj.shape == ():
+            obj = obj.item()
+        else:
+            obj = obj.tolist()
 
-    key_map = _normalise_key_lookup(data.keys())
+    if isinstance(obj, dict):
+        features = obj.get("x")
+        labels = obj.get("y")
+        if features is None or labels is None:
+            raise ValueError("保存的字典缺少 'x' 或 'y' 键")
+        return _normalise_vector_array(np.asarray(features)), _normalise_label_array(
+            np.asarray(labels)
+        )
 
-    def pick(*candidates: str) -> Optional[Any]:
-        for name in candidates:
-            if name in key_map:
-                return data[key_map[name]]
-        return None
+    if isinstance(obj, (list, tuple)) and len(obj) == 2:
+        features, labels = obj
+        return _normalise_vector_array(np.asarray(features)), _normalise_label_array(
+            np.asarray(labels)
+        )
 
-    x = pick("x", "x_train", "features", "vectors", "train_x", "train_features")
-    y = pick("y", "y_train", "labels", "train_y", "train_labels")
-    x_valid = pick("x_valid", "x_val", "valid_x", "validation_x")
-    y_valid = pick("y_valid", "y_val", "valid_y", "validation_y")
-
-    if x is None or y is None:
-        raise ValueError("在提供的 npy 数据中未找到特征或标签字段")
-
-    return _as_numpy(x), _as_numpy(y), (
-        None if x_valid is None else _as_numpy(x_valid)
-    ), (
-        None if y_valid is None else _as_numpy(y_valid)
+    raise TypeError(
+        "不支持的向量文件格式，请使用最新的向量化脚本重新生成数据。"
     )
 
 
-def _extract_features_and_labels(obj: Any) -> Tuple[np.ndarray, np.ndarray, Optional[np.ndarray], Optional[np.ndarray]]:
-    """Parse arbitrary objects produced by ``np.load``.
+def _load_dataset_bundle(vector_file: Path) -> DatasetBundle:
+    if not vector_file.exists():
+        raise FileNotFoundError(f"向量文件不存在: {vector_file}")
 
-    The function supports several common storage conventions:
+    loaded = np.load(vector_file, allow_pickle=True)
+    features, labels = _extract_from_saved_object(loaded)
+    return DatasetBundle(features, labels)
 
-    * ``dict`` / ``Mapping`` objects with ``X``/``y`` like keys.
-    * ``(X, y)`` tuples or lists.
-    * Structured ``np.ndarray`` objects with a single element containing one of
-      the above structures.
-    """
 
-    if isinstance(obj, np.ndarray) and obj.dtype == object:
-        # Unwrap object arrays that are containers themselves (common when a
-        # tuple/dict was saved via ``np.save``).
-        if obj.ndim == 0:
-            return _extract_features_and_labels(obj.item())
-        if obj.ndim == 1 and obj.size == 1:
-            return _extract_features_and_labels(obj[0])
-
-    if isinstance(obj, Mapping):
-        return _extract_from_mapping(obj)
-
-    if isinstance(obj, (tuple, list)):
-        if len(obj) < 2:
-            raise ValueError("np.save 保存的序列需要至少包含特征和标签两部分")
-        x = _as_numpy(obj[0])
-        y = _as_numpy(obj[1])
-        x_valid: Optional[np.ndarray] = None
-        y_valid: Optional[np.ndarray] = None
-        if len(obj) >= 4:
-            x_valid = _as_numpy(obj[2])
-            y_valid = _as_numpy(obj[3])
-        return x, y, x_valid, y_valid
-
-    if isinstance(obj, np.ndarray):
-        raise ValueError(
-            "无法直接从纯特征矩阵中恢复标签。请确保 .npy 文件同时保存了标签信息。"
+def _prepare_valid_sets(
+    valid_bundles: Sequence[Tuple[str, DatasetBundle]]
+) -> Tuple[List[Any], List[str]]:
+    _require_lightgbm()
+    valid_sets: List[lgb.Dataset] = []
+    valid_names: List[str] = []
+    for name, bundle in valid_bundles:
+        valid_sets.append(
+            lgb.Dataset(bundle.vectors, label=bundle.labels, free_raw_data=False)
         )
+        valid_names.append(name)
+    return valid_sets, valid_names
 
-    raise ValueError("不支持的 npy 数据格式")
 
+def _make_progress_callback(
+    total_rounds: int,
+    progress_callback: Optional[callable],
+    text_callback: Optional[callable],
+    report_every: int = 10,
+) -> Optional[Any]:
+    _require_lightgbm()
+    if progress_callback is None and text_callback is None:
+        return None
 
-def _prepare_dataset_splits(
-    raw_data: Any,
-    *,
-    validation_ratio: float,
-    random_state: int,
-) -> _DatasetSplits:
-    """Prepare training/validation splits from ``raw_data``."""
+    def _callback(env) -> None:
+        iteration = env.iteration + 1
+        if progress_callback is not None:
+            progress = int(min(iteration / max(total_rounds, 1), 1.0) * 100)
+            progress_callback(progress)
+        if text_callback is not None and iteration % report_every == 0:
+            metrics = []
+            for name, loss, *_ in env.evaluation_result_list:
+                metrics.append(f"{name}={loss:.4f}")
+            metric_str = ", ".join(metrics) if metrics else "迭代完成"
+            text_callback(f"训练进度 {iteration}/{total_rounds}: {metric_str}")
 
-    x, y, x_valid, y_valid = _extract_features_and_labels(raw_data)
-
-    x = _ensure_2d(_as_numpy(x).astype(np.float32))
-    y = _ensure_1d(_as_numpy(y))
-
-    if x_valid is None or y_valid is None:
-        x_train, x_valid, y_train, y_valid = train_test_split(
-            x,
-            y,
-            test_size=validation_ratio,
-            random_state=random_state,
-            stratify=y if len(np.unique(y)) > 1 else None,
-        )
-    else:
-        x_train = _ensure_2d(_as_numpy(x).astype(np.float32))
-        y_train = _ensure_1d(_as_numpy(y))
-        x_valid = _ensure_2d(_as_numpy(x_valid).astype(np.float32))
-        y_valid = _ensure_1d(_as_numpy(y_valid))
-
-    return _DatasetSplits(x_train, y_train, x_valid, y_valid)
+    _callback.order = 10  # type: ignore[attr-defined]
+    return _callback
 
 
 def train_ember_model_from_npy(
-    npy_path: str,
-    model_dir: str,
+    train_vectors: Path,
     *,
-    validation_ratio: float = 0.1,
-    random_state: int = 42,
-    num_boost_round: int = 1500,
-    early_stopping_rounds: int = 100,
-    lgbm_params: Optional[MutableMapping[str, Any]] = None,
-    progress_callback: Optional[Callable[[int], None]] = None,
-    status_callback: Optional[Callable[[str], None]] = None,
-) -> Dict[str, Any]:
-    """Train an EMBER-compatible LightGBM model from a ``.npy`` feature set.
+    valid_vectors: Optional[Path] = None,
+    model_output: Optional[Path] = None,
+    lgbm_params: Optional[Mapping[str, Any]] = None,
+    overrides: Optional[Mapping[str, Any]] = None,
+    num_boost_round: Optional[int] = None,
+    early_stopping_rounds: Optional[int] = 50,
+    progress_callback=None,
+    text_callback=None,
+    status_callback=None,
+) -> Any:
+    """Train a LightGBM model using feature/label arrays stored in ``.npy`` files."""
 
-    Parameters
-    ----------
-    npy_path:
-        Path to the ``.npy`` file that contains both feature vectors and
-        corresponding labels.
-    model_dir:
-        Directory where the trained model and accompanying metadata will be
-        saved.  The directory will be created if it does not exist.
-    validation_ratio:
-        Fraction of the data to reserve for validation when the dataset does
-        not already contain an explicit validation split.
-    random_state:
-        Random seed used for deterministic data splitting and LightGBM
-        training.
-    num_boost_round:
-        Maximum number of boosting iterations.
-    early_stopping_rounds:
-        Stop training if the validation metric does not improve after this
-        many rounds.
-    lgbm_params:
-        Optional dictionary overriding the default LightGBM parameters.
+    _require_lightgbm()
 
-    Returns
-    -------
-    dict
-        Contains paths to the saved model/metadata and the validation metrics
-        observed during training.
-    """
+    # ``status_callback`` was used by earlier UI code as the textual channel while
+    # ``text_callback`` is the modern equivalent.  Support both to remain
+    # backwards compatible, mirroring messages to either callback when provided.
+    if text_callback is None and status_callback is not None:
+        text_callback = status_callback
+    elif text_callback is not None and status_callback is not None:
+        original_text_callback = text_callback
 
-    def _emit_progress(value: int) -> None:
-        if progress_callback is not None:
-            progress_callback(int(max(0, min(100, value))))
-
-    def _emit_status(message: str) -> None:
-        if status_callback is not None:
+        def _fanout(message: str) -> None:
+            original_text_callback(message)
             status_callback(message)
 
-    npy_file = Path(npy_path)
-    if not npy_file.exists():
-        raise FileNotFoundError(f"未找到特征文件: {npy_path}")
+        text_callback = _fanout
 
-    _emit_status("加载特征数据……")
-    _emit_progress(5)
-    raw_data = np.load(npy_file, allow_pickle=True)
-    dataset = _prepare_dataset_splits(
-        raw_data,
-        validation_ratio=validation_ratio,
-        random_state=random_state,
+    train_bundle = _load_dataset_bundle(train_vectors)
+
+    valid_bundles: List[Tuple[str, DatasetBundle]] = []
+    if valid_vectors is not None:
+        valid_bundle = _load_dataset_bundle(valid_vectors)
+        valid_bundles.append(("valid", valid_bundle))
+
+    combined_overrides: Optional[Mapping[str, Any]] = overrides
+    if overrides is not None and lgbm_params is not None:
+        merged: Dict[str, Any] = dict(lgbm_params)
+        merged.update(overrides)
+        combined_overrides = merged
+    elif overrides is None and lgbm_params is not None:
+        combined_overrides = lgbm_params
+
+    config: LightGBMConfig = build_ember_lightgbm_config(
+        overrides=combined_overrides,
+        num_boost_round=num_boost_round,
+        early_stopping_rounds=early_stopping_rounds,
     )
 
-    _emit_status("准备 LightGBM 数据集……")
-    _emit_progress(15)
+    dtrain = lgb.Dataset(train_bundle.vectors, label=train_bundle.labels, free_raw_data=False)
+    valid_sets, valid_names = _prepare_valid_sets(valid_bundles)
 
-    default_params: Dict[str, Any] = {
-        "objective": "binary",
-        "metric": "auc",
-        "boosting_type": "gbdt",
-        "num_leaves": 64,
-        "learning_rate": 0.05,
-        "feature_fraction": 0.9,
-        "bagging_fraction": 0.8,
-        "bagging_freq": 5,
-        "max_depth": -1,
-        "min_data_in_leaf": 50,
-        "lambda_l1": 0.0,
-        "lambda_l2": 0.0,
-        "verbose": -1,
-        "force_col_wise": True,
-        "seed": random_state,
-        "num_threads": 0,
+    callbacks: List[Any] = []
+    progress_cb = _make_progress_callback(
+        config.num_boost_round,
+        progress_callback,
+        text_callback,
+    )
+    if progress_cb is not None:
+        callbacks.append(progress_cb)
+
+    train_kwargs: Dict[str, Any] = {
+        "num_boost_round": config.num_boost_round,
+        "valid_sets": valid_sets or None,
+        "valid_names": valid_names or None,
+        "callbacks": callbacks,
     }
-    if lgbm_params:
-        default_params.update(lgbm_params)
-
-    train_dataset = lgb.Dataset(dataset.x_train, label=dataset.y_train)
-    valid_dataset = lgb.Dataset(dataset.x_valid, label=dataset.y_valid, reference=train_dataset)
-
-    _emit_status("开始训练 LightGBM 模型……")
-
-    def _progress_updater(num_rounds: int):
-        start, end = 20, 90
-
-        def _callback(env: lgb.callback.CallbackEnv) -> None:  # type: ignore[name-defined]
-            if env.iteration == 0:
-                return
-            fraction = min(env.iteration / max(1, num_rounds), 1.0)
-            _emit_progress(start + int(fraction * (end - start)))
-
-        return _callback
+    if config.early_stopping_rounds is not None:
+        train_kwargs["early_stopping_rounds"] = config.early_stopping_rounds
 
     booster = lgb.train(
-        default_params,
-        train_dataset,
-        num_boost_round=num_boost_round,
-        valid_sets=[train_dataset, valid_dataset],
-        valid_names=["train", "valid"],
-        early_stopping_rounds=early_stopping_rounds,
-        verbose_eval=False,
-        callbacks=[_progress_updater(num_boost_round)],
+        config.params,
+        dtrain,
+        **train_kwargs,
     )
 
-    best_iteration = booster.best_iteration or num_boost_round
-    _emit_progress(92)
-    _emit_status("计算验证指标……")
-    y_prob = booster.predict(dataset.x_valid, num_iteration=best_iteration)
-    y_pred = (y_prob >= 0.5).astype(int)
+    if model_output is not None:
+        model_output.parent.mkdir(parents=True, exist_ok=True)
+        booster.save_model(str(model_output))
+        if text_callback is not None:
+            text_callback(f"模型已保存到 {model_output}")
 
-    metrics = {
-        "auc": float(roc_auc_score(dataset.y_valid, y_prob)),
-        "accuracy": float(accuracy_score(dataset.y_valid, y_pred)),
-        "f1": float(f1_score(dataset.y_valid, y_pred, zero_division=0)),
-        "best_iteration": int(best_iteration),
-    }
+    if progress_callback is not None:
+        progress_callback(100)
 
-    output_dir = Path(model_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    model_path = output_dir / "ember_lightgbm_model.txt"
-    booster.save_model(str(model_path), num_iteration=best_iteration)
-
-    _emit_progress(96)
-    _emit_status("写入模型元数据……")
-    metadata = {
-        "created_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
-        "npy_path": str(npy_file.resolve()),
-        "num_training_samples": int(dataset.x_train.shape[0]),
-        "num_validation_samples": int(dataset.x_valid.shape[0]),
-        "num_features": int(dataset.x_train.shape[1]),
-        "metrics": metrics,
-        "lightgbm_params": default_params,
-    }
-
-    metadata_path = output_dir / "metadata.json"
-    with metadata_path.open("w", encoding="utf-8") as fh:
-        json.dump(metadata, fh, ensure_ascii=False, indent=2)
-
-    _emit_progress(100)
-    _emit_status("模型训练完成！")
-    return {
-        "model_path": str(model_path),
-        "metadata_path": str(metadata_path),
-        "metrics": metrics,
-    }
-
-
-__all__ = ["train_ember_model_from_npy"]
+    return booster
