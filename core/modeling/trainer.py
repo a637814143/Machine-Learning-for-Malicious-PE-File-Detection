@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import inspect
 import numbers
 import os
 from os import PathLike
@@ -202,17 +201,6 @@ def _ensure_model_path_writable(output_path: Path) -> Path:
     return output_path
 
 
-def _train_supports_early_stopping() -> bool:
-    """Return True when ``lgb.train`` accepts ``early_stopping_rounds``."""
-
-    _require_lightgbm()
-    try:
-        signature = inspect.signature(lgb.train)
-    except (TypeError, ValueError):  # pragma: no cover - extremely old versions
-        return False
-    return "early_stopping_rounds" in signature.parameters
-
-
 def _prepare_valid_sets(
     valid_bundles: Sequence[Tuple[str, DatasetBundle]]
 ) -> Tuple[List[Any], List[str]]:
@@ -339,25 +327,51 @@ def train_ember_model_from_npy(
 
     train_kwargs: Dict[str, Any] = {
         "num_boost_round": config.num_boost_round,
-        "valid_sets": valid_sets or None,
-        "valid_names": valid_names or None,
         "callbacks": callbacks,
     }
+    if valid_sets:
+        train_kwargs["valid_sets"] = valid_sets
+        train_kwargs["valid_names"] = valid_names
+
+    early_stopping_fallback: Optional[Any] = None
     if config.early_stopping_rounds is not None:
-        if _train_supports_early_stopping():
-            train_kwargs["early_stopping_rounds"] = config.early_stopping_rounds
-        elif hasattr(lgb, "early_stopping"):
-            callbacks.append(lgb.early_stopping(config.early_stopping_rounds))
+        train_kwargs["early_stopping_rounds"] = config.early_stopping_rounds
+        if hasattr(lgb, "early_stopping"):
+            early_stopping_fallback = lgb.early_stopping(
+                config.early_stopping_rounds
+            )
+
+    try:
+        booster = lgb.train(
+            config.params,
+            dtrain,
+            **train_kwargs,
+        )
+    except TypeError as exc:
+        should_retry = (
+            config.early_stopping_rounds is not None
+            and "early_stopping_rounds" in str(exc)
+        )
+        if not should_retry:
+            raise
+
+        train_kwargs.pop("early_stopping_rounds", None)
+        if early_stopping_fallback is not None:
+            callbacks.append(early_stopping_fallback)
+            if text_callback is not None:
+                text_callback(
+                    "当前 LightGBM 版本不支持 early_stopping_rounds 参数，已改用回调实现提前停止。"
+                )
         elif text_callback is not None:
             text_callback(
                 "当前 LightGBM 版本不支持提前停止参数，将继续训练直至最大轮次。"
             )
 
-    booster = lgb.train(
-        config.params,
-        dtrain,
-        **train_kwargs,
-    )
+        booster = lgb.train(
+            config.params,
+            dtrain,
+            **train_kwargs,
+        )
 
     if model_output is not None:
         output_path = _ensure_model_path_writable(
