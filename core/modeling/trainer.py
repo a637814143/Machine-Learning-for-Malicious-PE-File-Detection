@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import inspect
 from os import PathLike
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, Union
@@ -170,6 +171,17 @@ def _resolve_model_output_path(model_output: Pathish) -> Path:
     return output_path / DEFAULT_MODEL_FILENAME
 
 
+def _train_supports_early_stopping() -> bool:
+    """Return True when ``lgb.train`` accepts ``early_stopping_rounds``."""
+
+    _require_lightgbm()
+    try:
+        signature = inspect.signature(lgb.train)
+    except (TypeError, ValueError):  # pragma: no cover - extremely old versions
+        return False
+    return "early_stopping_rounds" in signature.parameters
+
+
 def _prepare_valid_sets(
     valid_bundles: Sequence[Tuple[str, DatasetBundle]]
 ) -> Tuple[List[Any], List[str]]:
@@ -281,7 +293,14 @@ def train_ember_model_from_npy(
         "callbacks": callbacks,
     }
     if config.early_stopping_rounds is not None:
-        train_kwargs["early_stopping_rounds"] = config.early_stopping_rounds
+        if _train_supports_early_stopping():
+            train_kwargs["early_stopping_rounds"] = config.early_stopping_rounds
+        elif hasattr(lgb, "early_stopping"):
+            callbacks.append(lgb.early_stopping(config.early_stopping_rounds))
+        elif text_callback is not None:
+            text_callback(
+                "当前 LightGBM 版本不支持提前停止参数，将继续训练直至最大轮次。"
+            )
 
     booster = lgb.train(
         config.params,
