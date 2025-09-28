@@ -106,6 +106,8 @@ def _extract_from_saved_object(obj: Any) -> Tuple[np.ndarray, np.ndarray]:
 
 Pathish = Union[str, Path, PathLike[str]]
 
+DEFAULT_MODEL_FILENAME = "model.txt"
+
 
 def _coerce_path(value: Pathish) -> Path:
     if isinstance(value, Path):
@@ -121,6 +123,20 @@ def _load_dataset_bundle(vector_file: Pathish) -> DatasetBundle:
     loaded = np.load(path, allow_pickle=True)
     features, labels = _extract_from_saved_object(loaded)
     return DatasetBundle(features, labels)
+
+
+def _resolve_model_output_path(model_output: Pathish) -> Path:
+    output_path = _coerce_path(model_output)
+
+    if output_path.exists():
+        if output_path.is_dir():
+            return output_path / DEFAULT_MODEL_FILENAME
+        return output_path
+
+    if output_path.suffix:
+        return output_path
+
+    return output_path / DEFAULT_MODEL_FILENAME
 
 
 def _prepare_valid_sets(
@@ -243,7 +259,7 @@ def train_ember_model_from_npy(
     )
 
     if model_output is not None:
-        output_path = _coerce_path(model_output)
+        output_path = _resolve_model_output_path(model_output)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         booster.save_model(str(output_path))
         if text_callback is not None:
