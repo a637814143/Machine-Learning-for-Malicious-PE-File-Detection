@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import inspect
 import numbers
+import os
 from os import PathLike
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, Union
@@ -154,7 +155,11 @@ def _load_dataset_bundle(vector_file: Pathish) -> DatasetBundle:
         raise FileNotFoundError(f"向量文件不存在: {path}")
 
     loaded = np.load(path, allow_pickle=True)
-    features, labels = _extract_from_saved_object(loaded)
+    try:
+        features, labels = _extract_from_saved_object(loaded)
+    finally:
+        if isinstance(loaded, NpzFile):
+            loaded.close()
     return DatasetBundle(features, labels)
 
 
@@ -170,6 +175,31 @@ def _resolve_model_output_path(model_output: Pathish) -> Path:
         return output_path
 
     return output_path / DEFAULT_MODEL_FILENAME
+
+
+def _ensure_model_path_writable(output_path: Path) -> Path:
+    """Ensure the final LightGBM model path is writable before saving."""
+
+    parent = output_path.parent
+    try:
+        parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise PermissionError(f"无法创建模型保存目录: {parent}") from exc
+
+    pre_existing = output_path.exists()
+    try:
+        with output_path.open("a+b"):
+            pass
+    except OSError as exc:
+        raise PermissionError(f"无法写入模型文件: {output_path}") from exc
+    else:
+        if not pre_existing:
+            try:
+                output_path.unlink()
+            except OSError:
+                pass
+
+    return output_path
 
 
 def _train_supports_early_stopping() -> bool:
@@ -330,13 +360,19 @@ def train_ember_model_from_npy(
     )
 
     if model_output is not None:
-        output_path = _resolve_model_output_path(model_output)
-        parent = output_path.parent
-        if not parent.exists():
-            parent.mkdir(parents=True, exist_ok=True)
-        booster.save_model(str(output_path))
-        if text_callback is not None:
-            text_callback(f"模型已保存到 {output_path}")
+        output_path = _ensure_model_path_writable(
+            _resolve_model_output_path(model_output)
+        )
+        try:
+            booster.save_model(os.fspath(output_path))
+        except Exception as exc:
+            message = f"模型保存失败: {exc}"
+            if text_callback is not None:
+                text_callback(message)
+            raise
+        else:
+            if text_callback is not None:
+                text_callback(f"模型已保存到 {output_path}")
 
     if progress_callback is not None:
         progress_callback(100)
