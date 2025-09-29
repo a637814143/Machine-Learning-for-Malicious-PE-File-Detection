@@ -1,3 +1,4 @@
+
 # app/ui/main_window.py
 from pathlib import Path
 
@@ -112,8 +113,8 @@ class MachineLearningPEUI(QtWidgets.QDialog):
         self.lbl_test_model = QtWidgets.QLabel("测试模型", self)
         self.lbl_test_model.setGeometry(890, 500, 85, 25)
 
-        self.lbl_static_detect = QtWidgets.QLabel("静态检测", self)
-        self.lbl_static_detect.setGeometry(890, 540, 85, 25)
+        self.lbl_model_predict = QtWidgets.QLabel("模型预测", self)
+        self.lbl_model_predict.setGeometry(890, 540, 85, 25)
 
         self.lbl_get_benign = QtWidgets.QLabel("获取良性", self)
         self.lbl_get_benign.setGeometry(890, 580, 85, 25)
@@ -149,9 +150,9 @@ class MachineLearningPEUI(QtWidgets.QDialog):
         self.progress_test_model.setGeometry(985, 500, 245, 25)
         self.progress_test_model.setValue(0)
 
-        self.progress_static_detect = QtWidgets.QProgressBar(self)
-        self.progress_static_detect.setGeometry(985, 540, 245, 25)
-        self.progress_static_detect.setValue(0)
+        self.progress_model_predict = QtWidgets.QProgressBar(self)
+        self.progress_model_predict.setGeometry(985, 540, 245, 25)
+        self.progress_model_predict.setValue(0)
 
         self.progress_get_benign = QtWidgets.QProgressBar(self)
         self.progress_get_benign.setGeometry(985, 580, 245, 25)
@@ -173,7 +174,7 @@ class MachineLearningPEUI(QtWidgets.QDialog):
             "特征转换": self.progress_feature_transform,
             "训练模型": self.progress_train_model,
             "测试模型": self.progress_test_model,
-            "静态检测": self.progress_static_detect,
+            "模型预测": self.progress_model_predict,
             "获取良性": self.progress_get_benign,
             "沙箱检测": self.progress_sandbox,
             "安装依赖": self.progress_install_deps,
@@ -200,8 +201,8 @@ class MachineLearningPEUI(QtWidgets.QDialog):
         self.btn_model_test = QtWidgets.QPushButton("测试模型", self)
         self.btn_model_test.setGeometry(1250, 410, 131, 41)
 
-        self.btn_static_detect = QtWidgets.QPushButton("静态检测", self)
-        self.btn_static_detect.setGeometry(1250, 460, 131, 41)
+        self.btn_model_predict = QtWidgets.QPushButton("模型预测", self)
+        self.btn_model_predict.setGeometry(1250, 460, 131, 41)
 
         self.btn_get_benign = QtWidgets.QPushButton("获取良性", self)
         self.btn_get_benign.setGeometry(1250, 510, 131, 41)
@@ -220,7 +221,7 @@ class MachineLearningPEUI(QtWidgets.QDialog):
             self.btn_feature_transform: "特征转换",
             self.btn_model_train: "训练模型",
             self.btn_model_test: "测试模型",
-            self.btn_static_detect: "静态检测",
+            self.btn_model_predict: "模型预测",
             self.btn_get_benign: "获取良性",
             self.btn_sandbox: "沙箱检测",
             self.btn_install_deps: "安装依赖",

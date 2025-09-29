@@ -30,7 +30,7 @@ UI_STRINGS = {
     "feature_transform": "特征转换",
     "train_model": "训练模型",
     "test_model": "测试模型",
-    "static_detect": "静态检测",
+    "model_predict": "模型预测",
     "get_benign": "获取良性",
     "sandbox": "沙箱检测",
     "install_deps": "安装依赖",
@@ -59,6 +59,7 @@ FONTS = {
     "caption": "Arial, 10pt, normal"
 }
 
+
 def get_icon_path(icon_name: str) -> str:
     """
     获取图标路径
@@ -66,6 +67,7 @@ def get_icon_path(icon_name: str) -> str:
     :return: 图标路径
     """
     return ICON_PATHS.get(icon_name, "")
+
 
 def get_style_sheet(style_name: str = "default") -> str:
     """
@@ -75,6 +77,7 @@ def get_style_sheet(style_name: str = "default") -> str:
     """
     return STYLE_SHEETS.get(style_name, STYLE_SHEETS["default"])
 
+
 def get_ui_string(key: str) -> str:
     """
     获取UI字符串
@@ -82,6 +85,7 @@ def get_ui_string(key: str) -> str:
     :return: 字符串值
     """
     return UI_STRINGS.get(key, key)
+
 
 def get_color(color_name: str) -> str:
     """
@@ -91,6 +95,7 @@ def get_color(color_name: str) -> str:
     """
     return COLORS.get(color_name, "#000000")
 
+
 def get_font(font_name: str) -> str:
     """
     获取字体设置
@@ -98,10 +103,3 @@ def get_font(font_name: str) -> str:
     :return: 字体设置
     """
     return FONTS.get(font_name, FONTS["body"])
-
-# 保持原有的导入，避免破坏现有功能
-try:
-    from scripts.FILE_NAME import GET_NAME
-    print(GET_NAME())
-except ImportError:
-    print("scripts.FILE_NAME_RULE 模块导入失败")
