@@ -4,10 +4,9 @@
 from __future__ import annotations
 
 import sys
-import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional, Sequence, Tuple
+from typing import Dict, Iterator, List, Optional, Tuple
 
 # 将项目根加入 sys.path（以便脚本独立运行时也能 import core.*）
 ROOT = Path(__file__).resolve().parents[1]
@@ -54,18 +53,6 @@ def collect_pe_files(target: Path) -> List[Path]:
     return files
 
 
-def save_results_csv(rows: Sequence[Tuple[str, float, str]], out_path: Path) -> None:
-    """Persist prediction results into a CSV file."""
-    import csv
-
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    with out_path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(["file", "probability", "verdict"])
-        for r in rows:
-            writer.writerow(r)
-
-
 def _predict_single(booster: "lgb.Booster", file_path: Path, threshold: float) -> Tuple[float, str]:
     features = extract_features(file_path)
     vector = vectorize_features(features)
@@ -77,7 +64,7 @@ def _predict_single(booster: "lgb.Booster", file_path: Path, threshold: float) -
 
 def MODEL_PREDICT(
     input_path: str,
-    output_dir: str,
+    output_dir: Optional[str] = None,
     model_path: Optional[str] = None,
     threshold: float = DEFAULT_THRESHOLD,
     max_to_scan: int = MAX_TO_SCAN,
@@ -89,7 +76,9 @@ def MODEL_PREDICT(
     input_path:
         File or directory to scan.
     output_dir:
-        Directory where the CSV report should be written.
+        Optional directory reserved for future extensions.  The current
+        implementation keeps prediction results in memory only and does not
+        write any files.
     model_path:
         Optional custom LightGBM model path.  Defaults to ``model.txt`` at the
         repository root.
@@ -105,9 +94,9 @@ def MODEL_PREDICT(
     """
 
     target = Path(input_path).expanduser().resolve()
-    output_root = Path(output_dir).expanduser().resolve()
-
-    if not output_root.exists():
+    output_root: Optional[Path] = None
+    if output_dir:
+        output_root = Path(output_dir).expanduser().resolve()
         output_root.mkdir(parents=True, exist_ok=True)
 
     model_file = Path(model_path).expanduser().resolve() if model_path else DEFAULT_MODEL
@@ -118,12 +107,11 @@ def MODEL_PREDICT(
     total_files = min(len(files), max_to_scan)
     files = files[:total_files]
 
-    start_ts = time.strftime("%Y%m%d_%H%M%S")
     yield PredictionLog(
         type="start",
         message=f"开始扫描 {target}，使用模型 {model_file}",
         total=total_files,
-        extra={"output_dir": str(output_root)},
+        extra={"output_dir": str(output_root) if output_root else None},
     )
 
     if total_files == 0:
@@ -136,13 +124,13 @@ def MODEL_PREDICT(
         return
 
     booster = lgb.Booster(model_file=str(model_file))
-    results: List[Tuple[str, float, str]] = []
+    processed = 0
     malicious = 0
 
     for idx, file_path in enumerate(files, 1):
         try:
             prob, verdict = _predict_single(booster, file_path, threshold)
-            results.append((str(file_path), prob, verdict))
+            processed += 1
             if verdict == "恶意":
                 malicious += 1
             message = f"{idx}/{total_files} {file_path} -> {prob:.6f} ({verdict})"
@@ -152,25 +140,22 @@ def MODEL_PREDICT(
             log_type = "error"
         yield PredictionLog(type=log_type, message=message, index=idx, total=total_files)
 
-    output_file = output_root / f"prediction_{start_ts}.csv"
-    if results:
-        save_results_csv(results, output_file)
+    if processed:
         summary_msg = (
-            f"预测完成，共处理 {total_files} 个文件，其中 {malicious} 个被判定为恶意。"
-            f"结果已保存至: {output_file}"
+            f"预测完成，共处理 {processed}/{total_files} 个文件，其中 {malicious} 个被判定为恶意。"
         )
     else:
-        output_file = output_root / f"prediction_{start_ts}.csv"
-        summary_msg = "没有成功的预测结果，未生成CSV文件。"
+        summary_msg = "没有成功的预测结果。"
 
     yield PredictionLog(
         type="finished",
         message=summary_msg,
         total=total_files,
         extra={
-            "output": str(output_file) if results else None,
-            "processed": len(results),
+            "output": None,
+            "processed": processed,
             "malicious": malicious,
+            "failed": total_files - processed,
         },
     )
 

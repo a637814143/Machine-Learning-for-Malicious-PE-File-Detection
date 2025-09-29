@@ -197,11 +197,12 @@ def install_dependencies_task(args, progress, text):
 def data_cleaning_task(args, progress, text):
     """Clean the dataset by filtering invalid or duplicate PE files."""
 
-    if len(args) < 2:
-        text("需要提供输入和输出路径")
+    if not args:
+        text("需要提供输入路径")
         return
 
-    src, dst = args[0], args[1]
+    src = args[0]
+    dst = next((a for a in args[1:] if a and not str(a).isdigit()), None)
     try:
         iterator = DATA_CLEAN(src, dst)
     except Exception as exc:  # pragma: no cover - runtime feedback
@@ -214,9 +215,11 @@ def data_cleaning_task(args, progress, text):
             entry_type = entry.get("type")
             if entry_type == "start":
                 total = int(entry.get("total", 0))
-                text(
-                    f"开始数据清洗，共 {total} 个候选文件。输出目录: {entry.get('output')}"
-                )
+                log_target = entry.get("log_target") or entry.get("log")
+                intro = f"开始数据清洗，共 {total} 个候选文件。"
+                if log_target:
+                    intro += f" 日志文件将保存到: {log_target}"
+                text(intro)
                 if total == 0:
                     progress(100)
             elif entry_type == "progress":
@@ -228,15 +231,23 @@ def data_cleaning_task(args, progress, text):
                 if total:
                     progress(int(idx / total * 100))
             elif entry_type == "finished":
-                text(
-                    "数据清洗完成：保留 {kept} 个，跳过 {skipped} 个，重复 {duplicates} 个。"
-                    "输出目录: {output}".format(
-                        kept=entry.get("kept", 0),
-                        skipped=entry.get("skipped", 0),
-                        duplicates=entry.get("duplicates", 0),
-                        output=entry.get("output"),
-                    )
+                summary = (
+                    "数据清洗完成：保留 {kept} 个，删除 {removed} 个，其中非PE {removed_non_pe} 个、"
+                    "空文件 {removed_empty} 个、重复 {removed_duplicates} 个。"
+                ).format(
+                    kept=entry.get("kept", 0),
+                    removed=entry.get("removed", 0),
+                    removed_non_pe=entry.get("removed_non_pe", 0),
+                    removed_empty=entry.get("removed_empty", 0),
+                    removed_duplicates=entry.get("removed_duplicates", 0),
                 )
+                text(summary)
+                log_path = entry.get("log")
+                if log_path:
+                    text(f"清洗日志: {log_path}")
+                errors = entry.get("errors", 0)
+                if errors:
+                    text(f"有 {errors} 个文件删除失败，请手动检查。")
                 progress(100)
     except Exception as exc:  # pragma: no cover - runtime feedback
         text(f"数据清洗失败: {exc}")
@@ -247,11 +258,12 @@ def data_cleaning_task(args, progress, text):
 def model_prediction_task(args, progress, text):
     """Run LightGBM model prediction and show incremental progress."""
 
-    if len(args) < 2:
-        text("需要提供输入和输出路径")
+    if not args:
+        text("需要提供输入路径")
         return
 
-    src, dst = args[0], args[1]
+    src = args[0]
+    dst = next((a for a in args[1:] if a and not str(a).isdigit()), None)
     try:
         logs = MODEL_PREDICT(src, dst)
     except Exception as exc:  # pragma: no cover - runtime feedback
