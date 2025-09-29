@@ -246,11 +246,6 @@ class MachineLearningPEUI(QtWidgets.QDialog):
             "Github Address:<br/>https://github.com/a637814143/Machine-Learning-for-Mailcious-PE-File-Detection</p>"
         )
 
-        # 下拉框
-        self.modelComboBox = QtWidgets.QComboBox(self)
-        self.modelComboBox.setGeometry(1250, 740, 131, 21)
-        self.modelComboBox.addItems(["随机森林", "SNN", "深度树"])
-
         # 线程数配置
         self.threadCountLabel = QtWidgets.QLabel("线程数:", self)
         self.threadCountLabel.setGeometry(1245, 810, 60, 21)
