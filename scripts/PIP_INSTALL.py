@@ -8,7 +8,9 @@ import sys
 from pathlib import Path
 from typing import Iterator, Optional
 
-from ROOT_PATH import ROOT
+# Resolve the project root dynamically so the script works even when executed
+# without installing ``scripts`` as a package.
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def INSTALL(requirements_path: Optional[str] = None) -> Iterator[str]:
