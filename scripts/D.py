@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import math
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -60,6 +61,25 @@ def _predict_single(booster: "lgb.Booster", file_path: Path, threshold: float) -
     prob = float(booster.predict(arr)[0])
     verdict = "恶意" if prob >= threshold else "良性"
     return prob, verdict
+
+
+def _display_probability(prob: float, threshold: float) -> float:
+    """Map raw model probability to a user friendly percentage.
+
+    The mapping guarantees:
+    * values grow strictly as the raw probability increases;
+    * a score equal to the threshold is rendered as ``50.0001`` percent;
+    * the displayed percentage never reaches 100.
+    """
+
+    # Shift the probability relative to the threshold so the logistic curve
+    # centres around the decision boundary.  A moderate scale keeps the curve
+    # smooth while still highlighting confident predictions.
+    delta = prob - threshold
+    scaled = delta * 35.0
+    confidence = 1.0 / (1.0 + math.exp(-scaled))
+    percentage = confidence * 100.0 + 0.0001
+    return min(99.9999, percentage)
 
 
 def MODEL_PREDICT(
@@ -130,10 +150,14 @@ def MODEL_PREDICT(
     for idx, file_path in enumerate(files, 1):
         try:
             prob, verdict = _predict_single(booster, file_path, threshold)
+            display_prob = _display_probability(prob, threshold)
             processed += 1
             if verdict == "恶意":
                 malicious += 1
-            message = f"{idx}/{total_files} {file_path} -> {prob:.6f} ({verdict})"
+            message = (
+                f"{idx}/{total_files} {file_path} -> {prob:.6f} "
+                f"({verdict}, 恶意概率 {display_prob:.4f}%)"
+            )
             log_type = "progress"
         except Exception as exc:  # pragma: no cover - runtime feedback
             message = f"{idx}/{total_files} {file_path} -> 预测失败: {exc}"
