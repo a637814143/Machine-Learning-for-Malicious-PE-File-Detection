@@ -1,21 +1,7 @@
-
-
-"""Default task implementations and placeholders.
-
-Each task function accepts three parameters:
-    args: tuple of parameters from UI
-    progress: function to update progress bar (int 0-100)
-    text: function to send text/HTML to the UI
-
-Use @register_task("任务名称") to register a function so that the UI
-can find and execute it asynchronously.
-"""
-
 import time
 from pathlib import Path
 from .registry import register_task
 
-# Importing directly to avoid circular import with app.ui
 from core.utils.visualization import get_pe_info_html as FileInfo
 from core.feature_engineering import (
     extract_from_directory,
@@ -28,7 +14,7 @@ from scripts.PIP_INSTALL import INSTALL as install_dependencies
 
 try:
     import pefile
-except Exception:  # pragma: no cover - pefile may be missing during tests
+except Exception:
     pefile = None
 
 
@@ -44,7 +30,7 @@ def file_info(args, progress, text):
         return
     try:
         pe = pefile.PE(str(path))
-    except Exception as e:  # pragma: no cover - runtime errors
+    except Exception as e:
         text(f"解析PE失败: {e}")
         return
 
@@ -78,7 +64,6 @@ def _placeholder_factory(task_name: str):
         text(f"{_name}：占位（未实现）")
     return _task
 
-# Real implementations -------------------------------------------------------
 
 
 @register_task("提取特征")
@@ -89,10 +74,10 @@ def extract_features_task(args, progress, text):
         return
     src, dst = args[0], args[1]
 
-    # 支持自定义线程数（第三个参数）
+    # 支持自定义线程数
     max_workers = int(args[2]) if len(args) > 2 and args[2].isdigit() else None
 
-    # 支持实时写入控制（第四个参数）
+    # 支持实时写入控制
     realtime_write = True
     if len(args) > 3:
         if args[3].lower() in ['false', '0', 'no', 'batch']:
@@ -111,10 +96,10 @@ def feature_vector_task(args, progress, text):
         return
     src, dst = args[0], args[1]
 
-    # 支持自定义线程数（第三个参数）
+    # 支持自定义线程数
     max_workers = int(args[2]) if len(args) > 2 and args[2].isdigit() else None
 
-    # 支持实时写入控制（第四个参数）
+    # 支持实时写入控制
     realtime_write = True
     if len(args) > 3:
         if args[3].lower() in ['false', '0', 'no', 'batch']:
@@ -155,7 +140,7 @@ def train_model_task(args, progress, text):
             progress_callback=progress,
             status_callback=text,
         )
-    except Exception as exc:  # pragma: no cover - runtime feedback
+    except Exception as exc:
         text(f"模型训练失败: {exc}")
         progress(0)
         return
@@ -176,7 +161,6 @@ def train_model_task(args, progress, text):
 
 @register_task("安装依赖")
 def install_dependencies_task(args, progress, text):
-    """Install Python dependencies and stream pip output to the UI."""
 
     progress(0)
     text("开始安装依赖……")
@@ -186,7 +170,7 @@ def install_dependencies_task(args, progress, text):
                 text(line)
             if idx % 5 == 0:
                 progress(min(95, 5 + idx))
-    except Exception as exc:  # pragma: no cover - runtime feedback
+    except Exception as exc:
         text(f"安装依赖失败: {exc}")
         progress(0)
         return
@@ -196,7 +180,6 @@ def install_dependencies_task(args, progress, text):
 
 @register_task("数据清洗")
 def data_cleaning_task(args, progress, text):
-    """Clean the dataset by filtering invalid or duplicate PE files."""
 
     if not args:
         text("需要提供输入路径")
@@ -206,7 +189,7 @@ def data_cleaning_task(args, progress, text):
     dst = next((a for a in args[1:] if a and not str(a).isdigit()), None)
     try:
         iterator = DATA_CLEAN(src, dst)
-    except Exception as exc:  # pragma: no cover - runtime feedback
+    except Exception as exc:
         text(f"数据清洗失败: {exc}")
         return
 
@@ -250,14 +233,13 @@ def data_cleaning_task(args, progress, text):
                 if errors:
                     text(f"有 {errors} 个文件删除失败，请手动检查。")
                 progress(100)
-    except Exception as exc:  # pragma: no cover - runtime feedback
+    except Exception as exc:
         text(f"数据清洗失败: {exc}")
         progress(0)
 
 
 @register_task("模型预测")
 def model_prediction_task(args, progress, text):
-    """Run LightGBM model prediction and show incremental progress."""
 
     if not args:
         text("需要提供输入路径")
@@ -267,7 +249,7 @@ def model_prediction_task(args, progress, text):
     dst = next((a for a in args[1:] if a and not str(a).isdigit()), None)
     try:
         logs = MODEL_PREDICT(src, dst)
-    except Exception as exc:  # pragma: no cover - runtime feedback
+    except Exception as exc:
         text(f"模型预测失败: {exc}")
         return
 
@@ -294,12 +276,11 @@ def model_prediction_task(args, progress, text):
                 progress(0)
             elif entry_type == "finished":
                 progress(100)
-    except Exception as exc:  # pragma: no cover - runtime feedback
+    except Exception as exc:
         text(f"模型预测失败: {exc}")
         progress(0)
 
 
-# Register placeholders for remaining buttons -------------------------------
 for _name in [
     "测试模型",
     "获取良性",
