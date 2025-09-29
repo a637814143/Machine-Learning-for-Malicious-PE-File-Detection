@@ -226,8 +226,3 @@ def get_pe_info_html(path: Path) -> str:
     html += "</ul>"
 
     return html
-
-
-if __name__ == "__main__":
-    test_file = Path(r"C:\Users\86133\PycharmProjects\毕业设计_基于机器学习的恶意软件检测\data\raw\malware\VirusShare_7023fdcb1f13c1f2aaf564754fae58d0")
-    show_pe_info(test_file)
