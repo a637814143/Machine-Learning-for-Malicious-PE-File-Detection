@@ -1,93 +1,52 @@
 #!/usr/bin/env python3
-"""
-Process-pool runner with per-file timeout + robust wait loop.
-- 单文件超时（TIMEOUT_SECONDS）后跳过
-- 最多扫描 MAX_TO_SCAN 个文件
-- 在主进程统计恶意数量/均值/最大/最小，保存 CSV
-"""
+"""LightGBM-based model prediction utilities used by the GUI."""
 
 from __future__ import annotations
+
 import sys
-import os
-from pathlib import Path
 import time
-from typing import List, Tuple, Optional
-from concurrent.futures import ProcessPoolExecutor, TimeoutError, wait, FIRST_COMPLETED
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, Iterator, List, Optional, Sequence, Tuple
 
-# ----------------- 配置区（只需修改这几处） -----------------
-# 可以是单个文件或目录
-PATH_TO_SCAN = Path(r"C:\Users\86133\PycharmProjects\machine\data\raw\benign")
-MODEL_PATH = Path(r"C:\Users\86133\PycharmProjects\machine\data\processed\models\model.txt")
-THRESHOLD = 0.0385
-
-# 最大进程数（不要太大，避免内存压力）
-MAX_WORKERS = min(12, (os.cpu_count() or 8))
-# 单文件超时（秒）
-TIMEOUT_SECONDS = 200
-# 本次最多处理的文件数
-MAX_TO_SCAN = 1500
-# -----------------------------------------------------------
-
-# 将项目根加入 sys.path（以便子进程也能 import core.*）
+# 将项目根加入 sys.path（以便脚本独立运行时也能 import core.*）
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-# 这些 import 主/子进程都需要
-try:
+try:  # pragma: no cover - optional dependency in tests
     import lightgbm as lgb
-except Exception as exc:
+except Exception as exc:  # pragma: no cover - provide helpful guidance
     raise ImportError("请先安装 lightgbm: pip install lightgbm") from exc
+
+import numpy as np
 
 from core.feature_engineering import extract_features, vectorize_features
 
 PE_SUFFIXES = {".exe", ".dll", ".sys", ".bin", ".scr", ".ocx"}
-
-# 由子进程在 initializer 中设置
-GLOBAL_BOOSTER = None  # type: ignore
-GLOBAL_MODEL_PATH = None  # type: ignore
-
-
-def _init_worker(model_path_str: str) -> None:
-    """每个子进程启动时加载模型一次"""
-    global GLOBAL_BOOSTER, GLOBAL_MODEL_PATH
-    GLOBAL_MODEL_PATH = model_path_str
-    try:
-        GLOBAL_BOOSTER = lgb.Booster(model_file=model_path_str)
-    except Exception as e:
-        GLOBAL_BOOSTER = None
-        print(f"[worker init] 无法加载模型 {model_path_str}: {e}", file=sys.stderr)
+DEFAULT_MODEL = ROOT / "model.txt"
+MAX_TO_SCAN = 1500
+DEFAULT_THRESHOLD = 0.0385
 
 
-def _worker_predict(path_str: str, threshold: float) -> Tuple[str, Optional[float], Optional[str], Optional[str]]:
-    """
-    子进程运行：提取特征并预测
-    返回: (文件 path, probability or None, verdict or None, error_msg or None)
-    """
-    global GLOBAL_BOOSTER, GLOBAL_MODEL_PATH
-    try:
-        if GLOBAL_BOOSTER is None:
-            if GLOBAL_MODEL_PATH is None:
-                raise RuntimeError("Worker 模型路径未设置")
-            GLOBAL_BOOSTER = lgb.Booster(model_file=GLOBAL_MODEL_PATH)
+@dataclass(frozen=True)
+class PredictionLog:
+    """Structured log emitted during prediction."""
 
-        from numpy import asarray, float32  # 子进程内按需导入
-        path = Path(path_str)
-        features = extract_features(path)
-        vector = vectorize_features(features)
-        arr = asarray(vector, dtype=float32).reshape(1, -1)
-        prob = float(GLOBAL_BOOSTER.predict(arr)[0])
-        verdict = "恶意" if prob >= threshold else "良性"
-        return (path_str, prob, verdict, None)
-    except Exception as e:
-        return (path_str, None, None, str(e))
+    type: str
+    message: str = ""
+    index: int = 0
+    total: int = 0
+    extra: Dict[str, object] | None = None
 
 
 def collect_pe_files(target: Path) -> List[Path]:
+    """Collect PE files from a file or directory."""
     if target.is_file():
         return [target]
     if not target.exists() or not target.is_dir():
         raise FileNotFoundError(f"指定路径不存在或不是目录: {target}")
+
     files: List[Path] = []
     for p in target.rglob("*"):
         if p.is_file() and p.suffix.lower() in PE_SUFFIXES:
@@ -95,8 +54,11 @@ def collect_pe_files(target: Path) -> List[Path]:
     return files
 
 
-def save_results_csv(rows: List[Tuple[str, float, str]], out_path: Path) -> None:
+def save_results_csv(rows: Sequence[Tuple[str, float, str]], out_path: Path) -> None:
+    """Persist prediction results into a CSV file."""
     import csv
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     with out_path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(["file", "probability", "verdict"])
@@ -104,104 +66,136 @@ def save_results_csv(rows: List[Tuple[str, float, str]], out_path: Path) -> None
             writer.writerow(r)
 
 
-def main():
-    start = time.strftime("%Y%m%d_%H%M%S")
-    print(f"[+] 扫描开始: {start}")
-    print(f"[+] 目标: {PATH_TO_SCAN}")
-    print(f"[+] 模型: {MODEL_PATH}")
-    print(f"[+] 阈值: {THRESHOLD}")
-    print(f"[+] 进程数: {MAX_WORKERS}, 单文件超时(s): {TIMEOUT_SECONDS}")
-    print(f"[+] 最多扫描文件数: {MAX_TO_SCAN}")
+def _predict_single(booster: "lgb.Booster", file_path: Path, threshold: float) -> Tuple[float, str]:
+    features = extract_features(file_path)
+    vector = vectorize_features(features)
+    arr = np.asarray(vector, dtype=np.float32).reshape(1, -1)
+    prob = float(booster.predict(arr)[0])
+    verdict = "恶意" if prob >= threshold else "良性"
+    return prob, verdict
 
-    if not MODEL_PATH.exists():
-        raise FileNotFoundError(f"未找到模型文件: {MODEL_PATH}")
 
-    all_files = collect_pe_files(PATH_TO_SCAN)
-    if not all_files:
-        print("[!] 未找到任何可识别的 PE 文件。结束。")
+def MODEL_PREDICT(
+    input_path: str,
+    output_dir: str,
+    model_path: Optional[str] = None,
+    threshold: float = DEFAULT_THRESHOLD,
+    max_to_scan: int = MAX_TO_SCAN,
+) -> Iterator[PredictionLog]:
+    """Run model prediction for PE files under ``input_path``.
+
+    Parameters
+    ----------
+    input_path:
+        File or directory to scan.
+    output_dir:
+        Directory where the CSV report should be written.
+    model_path:
+        Optional custom LightGBM model path.  Defaults to ``model.txt`` at the
+        repository root.
+    threshold:
+        Probability threshold distinguishing malicious vs benign.
+    max_to_scan:
+        Maximum number of files to analyse in one run.
+
+    Yields
+    ------
+    PredictionLog
+        Structured log entries that describe progress for GUI display.
+    """
+
+    target = Path(input_path).expanduser().resolve()
+    output_root = Path(output_dir).expanduser().resolve()
+
+    if not output_root.exists():
+        output_root.mkdir(parents=True, exist_ok=True)
+
+    model_file = Path(model_path).expanduser().resolve() if model_path else DEFAULT_MODEL
+    if not model_file.exists():
+        raise FileNotFoundError(f"未找到模型文件: {model_file}")
+
+    files = collect_pe_files(target)
+    total_files = min(len(files), max_to_scan)
+    files = files[:total_files]
+
+    start_ts = time.strftime("%Y%m%d_%H%M%S")
+    yield PredictionLog(
+        type="start",
+        message=f"开始扫描 {target}，使用模型 {model_file}",
+        total=total_files,
+        extra={"output_dir": str(output_root)},
+    )
+
+    if total_files == 0:
+        yield PredictionLog(
+            type="finished",
+            message="未找到任何可识别的 PE 文件。",
+            total=0,
+            extra={"output": None, "processed": 0, "malicious": 0},
+        )
         return
 
-    pe_files = all_files[:MAX_TO_SCAN]
-    total_files = len(pe_files)
-    print(f"[+] 发现 {len(all_files)} 个候选；将处理前 {total_files} 个。")
-
+    booster = lgb.Booster(model_file=str(model_file))
     results: List[Tuple[str, float, str]] = []
-    probs: List[float] = []
-    failed = 0
-    skipped_due_timeout = 0
-    malicious_count = 0
-    counter = 0
+    malicious = 0
 
-    with ProcessPoolExecutor(
-            max_workers=MAX_WORKERS,
-            initializer=_init_worker,
-            initargs=(str(MODEL_PATH),),
-    ) as ex:
-        future_to_path = {ex.submit(_worker_predict, str(p), THRESHOLD): p for p in pe_files}
-        remaining = set(future_to_path.keys())
+    for idx, file_path in enumerate(files, 1):
+        try:
+            prob, verdict = _predict_single(booster, file_path, threshold)
+            results.append((str(file_path), prob, verdict))
+            if verdict == "恶意":
+                malicious += 1
+            message = f"{idx}/{total_files} {file_path} -> {prob:.6f} ({verdict})"
+            log_type = "progress"
+        except Exception as exc:  # pragma: no cover - runtime feedback
+            message = f"{idx}/{total_files} {file_path} -> 预测失败: {exc}"
+            log_type = "error"
+        yield PredictionLog(type=log_type, message=message, index=idx, total=total_files)
 
-        print("[+] 开始并发预测...")
-        while remaining:
-            # 等待直到至少有一个完成或超时窗口到
-            done, not_done = wait(remaining, timeout=TIMEOUT_SECONDS, return_when=FIRST_COMPLETED)
-
-            if not done:
-                # 在超时时间内没有任何任务完成 -> 挑一个未完成任务判为超时跳过
-                fut = next(iter(not_done))
-                path = future_to_path.get(fut)
-                skipped_due_timeout += 1
-                cancelled = fut.cancel()  # 若任务尚未开始则可取消；已运行则返回 False
-                counter += 1
-                idx = counter
-                print(f"{idx:4d}/{total_files:4d} {path} -> 超时 {TIMEOUT_SECONDS}s，已跳过 (cancelled={cancelled})")
-                remaining.remove(fut)
-                continue
-
-            for fut in list(done):
-                path = future_to_path.get(fut)
-                counter += 1
-                idx = counter
-                try:
-                    fpath, prob, verdict, err = fut.result()  # 已完成，不会阻塞
-                    if err is None and prob is not None and verdict is not None:
-                        results.append((fpath, prob, verdict))
-                        probs.append(prob)
-                        if verdict == "恶意":
-                            malicious_count += 1
-                        print(f"{idx:4d}/{total_files:4d} {fpath} -> {prob:.6f} ({verdict})")
-                    else:
-                        failed += 1
-                        print(f"{idx:4d}/{total_files:4d} {path} -> 预测失败: {err}")
-                except Exception as e:
-                    failed += 1
-                    print(f"{idx:4d}/{total_files:4d} {path} -> 预测失败(异常): {e}")
-                finally:
-                    remaining.remove(fut)
-
-    # 统计
-    if probs:
-        import numpy as np
-        avg = float(np.mean(probs))
-        mx = float(np.max(probs))
-        mn = float(np.min(probs))
+    output_file = output_root / f"prediction_{start_ts}.csv"
+    if results:
+        save_results_csv(results, output_file)
+        summary_msg = (
+            f"预测完成，共处理 {total_files} 个文件，其中 {malicious} 个被判定为恶意。"
+            f"结果已保存至: {output_file}"
+        )
     else:
-        avg = mx = mn = 0.0
+        output_file = output_root / f"prediction_{start_ts}.csv"
+        summary_msg = "没有成功的预测结果，未生成CSV文件。"
 
-    processed = len(probs) + failed + skipped_due_timeout
-
-    print("\n==== 汇总 ====")
-    print(f"样本总数(本次处理上限): {total_files}")
-    # print(f"实际处理(完成/失败/超时): {processed} = 成功{len(probs)} / 失败{failed} / 超时{skipped_due_timeout}")
-    print(f"恶意数量: {malicious_count}")
-    print(f"准确率: {max(malicious_count, MAX_TO_SCAN - malicious_count) / processed * 100:.2f}%")
-    print(f"平均恶意概率: {avg:.6f}")
-    print(f"最大恶意概率: {mx:.6f}")
-    print(f"最小恶意概率: {mn:.6f}")
-
-    out_csv = Path(__file__).resolve().parent / f"scan_results_{start}.csv"
-    save_results_csv([(r[0], f"{r[1]:.6f}", r[2]) for r in results], out_csv)
-    print(f"[+] 结果已保存: {out_csv}")
+    yield PredictionLog(
+        type="finished",
+        message=summary_msg,
+        total=total_files,
+        extra={
+            "output": str(output_file) if results else None,
+            "processed": len(results),
+            "malicious": malicious,
+        },
+    )
 
 
-if __name__ == "__main__":
+def main() -> None:  # pragma: no cover - manual execution helper
+    import argparse
+
+    parser = argparse.ArgumentParser(description="批量预测PE文件是否恶意")
+    parser.add_argument("input", help="待扫描的文件或目录")
+    parser.add_argument("output", help="结果保存目录")
+    parser.add_argument("--model", help="LightGBM模型路径", default=None)
+    parser.add_argument("--threshold", type=float, default=DEFAULT_THRESHOLD)
+    parser.add_argument("--max", type=int, default=MAX_TO_SCAN)
+    args = parser.parse_args()
+
+    for log in MODEL_PREDICT(
+        args.input,
+        args.output,
+        model_path=args.model,
+        threshold=args.threshold,
+        max_to_scan=args.max,
+    ):
+        if log.message:
+            print(log.message)
+
+
+if __name__ == "__main__":  # pragma: no cover - CLI entry
     main()

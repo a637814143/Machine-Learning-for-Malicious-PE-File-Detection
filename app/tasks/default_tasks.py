@@ -21,6 +21,9 @@ from core.feature_engineering import (
     vectorize_feature_file,
 )
 from core.modeling.trainer import train_ember_model_from_npy
+from scripts.DATA_CLEAN import DATA_CLEAN
+from scripts.D import MODEL_PREDICT, PredictionLog
+from scripts.PIP_INSTALL import INSTALL as install_dependencies
 
 try:
     import pefile
@@ -170,13 +173,123 @@ def train_model_task(args, progress, text):
     text("\n".join(lines))
 
 
+@register_task("安装依赖")
+def install_dependencies_task(args, progress, text):
+    """Install Python dependencies and stream pip output to the UI."""
+
+    progress(0)
+    text("开始安装依赖……")
+    try:
+        for idx, line in enumerate(install_dependencies(), 1):
+            if line:
+                text(line)
+            if idx % 5 == 0:
+                progress(min(95, 5 + idx))
+    except Exception as exc:  # pragma: no cover - runtime feedback
+        text(f"安装依赖失败: {exc}")
+        progress(0)
+        return
+
+    progress(100)
+
+
+@register_task("数据清洗")
+def data_cleaning_task(args, progress, text):
+    """Clean the dataset by filtering invalid or duplicate PE files."""
+
+    if len(args) < 2:
+        text("需要提供输入和输出路径")
+        return
+
+    src, dst = args[0], args[1]
+    try:
+        iterator = DATA_CLEAN(src, dst)
+    except Exception as exc:  # pragma: no cover - runtime feedback
+        text(f"数据清洗失败: {exc}")
+        return
+
+    total = 0
+    try:
+        for entry in iterator:
+            entry_type = entry.get("type")
+            if entry_type == "start":
+                total = int(entry.get("total", 0))
+                text(
+                    f"开始数据清洗，共 {total} 个候选文件。输出目录: {entry.get('output')}"
+                )
+                if total == 0:
+                    progress(100)
+            elif entry_type == "progress":
+                idx = int(entry.get("index", 0))
+                total = int(entry.get("total", total)) or total
+                message = entry.get("message")
+                if message:
+                    text(str(message))
+                if total:
+                    progress(int(idx / total * 100))
+            elif entry_type == "finished":
+                text(
+                    "数据清洗完成：保留 {kept} 个，跳过 {skipped} 个，重复 {duplicates} 个。"
+                    "输出目录: {output}".format(
+                        kept=entry.get("kept", 0),
+                        skipped=entry.get("skipped", 0),
+                        duplicates=entry.get("duplicates", 0),
+                        output=entry.get("output"),
+                    )
+                )
+                progress(100)
+    except Exception as exc:  # pragma: no cover - runtime feedback
+        text(f"数据清洗失败: {exc}")
+        progress(0)
+
+
+@register_task("模型预测")
+def model_prediction_task(args, progress, text):
+    """Run LightGBM model prediction and show incremental progress."""
+
+    if len(args) < 2:
+        text("需要提供输入和输出路径")
+        return
+
+    src, dst = args[0], args[1]
+    try:
+        logs = MODEL_PREDICT(src, dst)
+    except Exception as exc:  # pragma: no cover - runtime feedback
+        text(f"模型预测失败: {exc}")
+        return
+
+    total = 0
+    try:
+        for log in logs:
+            if isinstance(log, PredictionLog):
+                entry_type = log.type
+                message = log.message
+                idx = log.index
+                total = log.total or total
+            else:  # pragma: no cover - defensive: unexpected type
+                entry_type = getattr(log, "type", "progress")
+                message = getattr(log, "message", str(log))
+                idx = getattr(log, "index", 0)
+                total = getattr(log, "total", total)
+
+            if message:
+                text(str(message))
+
+            if entry_type in {"progress", "error"} and idx and total:
+                progress(int(idx / total * 100))
+            elif entry_type == "start" and total == 0:
+                progress(0)
+            elif entry_type == "finished":
+                progress(100)
+    except Exception as exc:  # pragma: no cover - runtime feedback
+        text(f"模型预测失败: {exc}")
+        progress(0)
+
+
 # Register placeholders for remaining buttons -------------------------------
 for _name in [
-    "数据清洗",
     "测试模型",
-    "静态检测",
     "获取良性",
     "沙箱检测",
-    "安装依赖",
 ]:
     _placeholder_factory(_name)
