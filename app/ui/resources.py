@@ -30,7 +30,7 @@ UI_STRINGS = {
     "feature_transform": "特征转换",
     "train_model": "训练模型",
     "test_model": "测试模型",
-    "static_detect": "静态检测",
+    "model_predict": "模型预测",
     "get_benign": "获取良性",
     "sandbox": "沙箱检测",
     "install_deps": "安装依赖",
