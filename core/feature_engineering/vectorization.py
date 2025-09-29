@@ -580,3 +580,21 @@ def vectorize_feature_file(
     except Exception as e:
         text_callback(f"向量化过程异常: {str(e)}")
         raise
+
+
+def vectorize_features(features: Dict[str, object]) -> np.ndarray:
+    """Convert a single raw feature dictionary into an EMBER-style vector.
+
+    Parameters
+    ----------
+    features:
+        The dictionary produced by :func:`core.feature_engineering.static_features.extract_features`.
+
+    Returns
+    -------
+    numpy.ndarray
+        A one-dimensional NumPy array with ``VECTOR_SIZE`` elements suitable for
+        LightGBM inference.
+    """
+
+    return _vectorize_entry(features)
