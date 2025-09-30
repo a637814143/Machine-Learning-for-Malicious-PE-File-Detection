@@ -24,15 +24,52 @@ from sklearn.feature_extraction import FeatureHasher
 
 
 class ThreadSafeVectorWriter:
-    """线程安全的向量实时写入器"""
+    """线程安全的向量实时写入器，按块刷新到磁盘。"""
 
-    def __init__(self, save_path: str, vector_size: int, text_callback=None):
+    def __init__(
+        self,
+        save_path: str,
+        vector_size: int,
+        text_callback=None,
+        total_vectors: int | None = None,
+        flush_interval: int = 50_000,
+    ):
         self.save_path = save_path
         self.vector_size = vector_size
         self.text_callback = text_callback or (lambda x: None)
         self.lock = threading.Lock()
-        self.vectors = []
         self.written_count = 0
+        self.total_vectors = total_vectors
+        self.flush_interval = flush_interval
+
+        base_path = Path(save_path)
+        base_path.parent.mkdir(parents=True, exist_ok=True)
+        self._base_path = base_path
+
+        if total_vectors is None:
+            raise ValueError("实时写入模式需要提供总向量数量以便管理磁盘写入。")
+
+        # 使用 memmap 临时文件实现分块写入
+        def _temp_path(suffix: str) -> Path:
+            if base_path.suffix:
+                return base_path.with_suffix(base_path.suffix + suffix)
+            return base_path.with_name(base_path.name + suffix)
+
+        self._feature_path = _temp_path("_features.tmp.npy")
+        self._label_path = _temp_path("_labels.tmp.npy")
+
+        self._feature_memmap = np.lib.format.open_memmap(
+            self._feature_path,
+            mode="w+",
+            dtype=np.float32,
+            shape=(total_vectors, vector_size),
+        )
+        self._label_memmap = np.lib.format.open_memmap(
+            self._label_path,
+            mode="w+",
+            dtype=np.int64,
+            shape=(total_vectors,),
+        )
 
     def add_vector(
         self,
@@ -43,46 +80,99 @@ class ThreadSafeVectorWriter:
     ):
         """添加向量到缓存"""
         with self.lock:
-            self.vectors.append((index, vector, label, path))
+            if index >= self.total_vectors:
+                raise IndexError(
+                    f"向量索引 {index} 超出范围 (总计 {self.total_vectors})"
+                )
+
+            # 保证向量形状与类型
+            vec = np.asarray(vector, dtype=np.float32)
+            if vec.shape != (self.vector_size,):
+                raise ValueError(
+                    f"向量尺寸不匹配，期望 {(self.vector_size,)}, 实际 {vec.shape}"
+                )
+
+            self._feature_memmap[index] = vec
+            self._label_memmap[index] = np.int64(label)
             self.written_count += 1
+
             if path:
-                self.text_callback(f"已缓存向量 {self.written_count}: {Path(path).name}")
+                self.text_callback(
+                    f"已缓存向量 {self.written_count}: {Path(path).name}"
+                )
+
+            if (
+                self.written_count % self.flush_interval == 0
+                or self.written_count == self.total_vectors
+            ):
+                self._flush_locked()
 
     def write_to_file(self):
         """将所有向量写入文件"""
         with self.lock:
-            if not self.vectors:
-                self.text_callback("没有向量需要写入")
-                return
+            self._flush_locked()
 
-            # 按索引排序
-            self.vectors.sort(key=lambda x: x[0])
+            if self.written_count != self.total_vectors:
+                self.text_callback(
+                    f"警告: 仅写入 {self.written_count}/{self.total_vectors} 个向量"
+                )
 
-            # 提取向量、标签
-            vectors_only = [vec for _, vec, _, _ in self.vectors]
-            labels_only = [label for _, _, label, _ in self.vectors]
+            final_path = self._determine_final_path()
+            np.savez(final_path, x=self._feature_memmap, y=self._label_memmap)
 
-            features_array = (
-                np.vstack(vectors_only)
-                if vectors_only
-                else np.empty((0, self.vector_size), dtype=np.float32)
-            )
-            labels_array = (
-                np.asarray(labels_only, dtype=np.int64)
-                if labels_only
-                else np.empty((0,), dtype=np.int64)
-            )
-
-            # 写入文件，保持特征和标签对应
-            np.save(self.save_path, {"x": features_array, "y": labels_array})
             self.text_callback(
-                f"向量化完成，共写入 {len(vectors_only)} 个向量到 {self.save_path}"
+                f"向量化完成，共写入 {self.written_count} 个向量到 {final_path}"
             )
+
+        # 关闭并移除临时文件
+        self._close_memmaps()
+        self._cleanup_temp_files()
 
     def get_written_count(self):
         """获取已写入的数量"""
         with self.lock:
             return self.written_count
+
+    def _flush_locked(self):
+        """在持锁状态下刷新临时文件。"""
+        self._feature_memmap.flush()
+        self._label_memmap.flush()
+        if self.written_count == 0:
+            return
+        self.text_callback(
+            f"已将 {self.written_count} 个向量刷新到磁盘 (每 {self.flush_interval} 个批次)"
+        )
+
+    def _determine_final_path(self) -> Path:
+        text = str(self._base_path)
+        if text.endswith(".npz"):
+            return Path(text)
+        return Path(f"{text}.npz")
+
+    def _close_memmaps(self) -> None:
+        feature_map = getattr(self, "_feature_memmap", None)
+        label_map = getattr(self, "_label_memmap", None)
+        if feature_map is not None:
+            feature_map.flush()
+            if hasattr(feature_map, "_mmap"):
+                feature_map._mmap.close()
+        if label_map is not None:
+            label_map.flush()
+            if hasattr(label_map, "_mmap"):
+                label_map._mmap.close()
+
+    def _cleanup_temp_files(self) -> None:
+        for path in (self._feature_path, self._label_path):
+            try:
+                Path(path).unlink()
+            except FileNotFoundError:
+                continue
+
+    def abort(self) -> None:
+        """在发生异常时清理资源而不生成最终文件。"""
+        with self.lock:
+            self._close_memmaps()
+            self._cleanup_temp_files()
 
 
 # Feature layout configuration -----------------------------------------------
@@ -409,9 +499,16 @@ def vectorize_feature_file(
     include a ``features`` field (as produced by
     :func:`static_features.extract_from_directory`) or place the EMBER-style
     feature blocks directly at the top level (official EMBER JSONL export).
-    ``save_path`` will be written in NumPy ``.npy`` format containing an
+    ``save_path`` will be written in NumPy ``.npz`` format containing an
     array of shape ``(num_files, VECTOR_SIZE)``.
     """
+    def _ensure_npz_path(path: str | Path) -> Path:
+        candidate = Path(path)
+        text = str(candidate)
+        if text.endswith(".npz"):
+            return Path(text)
+        return Path(f"{text}.npz")
+
     save_path += '/' + NAME_RULE(only_time=True)
     print(save_path)
     file_path = Path(json_path)
@@ -501,7 +598,13 @@ def vectorize_feature_file(
     # 创建实时向量写入器
     vector_writer = None
     if realtime_write:
-        vector_writer = ThreadSafeVectorWriter(save_path, VECTOR_SIZE, text_callback)
+        vector_writer = ThreadSafeVectorWriter(
+            save_path,
+            VECTOR_SIZE,
+            text_callback,
+            total_vectors=total,
+            flush_interval=50_000,
+        )
 
     # 准备数据
     def iter_lines():
@@ -570,15 +673,21 @@ def vectorize_feature_file(
             else:
                 array = np.empty((0, VECTOR_SIZE), dtype=np.float32)
                 label_array = np.empty((0,), dtype=np.int64)
-            np.save(save_path, {"x": array, "y": label_array})
+            final_path = _ensure_npz_path(save_path)
+            np.savez(final_path, x=array, y=label_array)
+            text_callback(
+                f"向量化完成，共写入 {array.shape[0]} 个向量到 {final_path}"
+            )
         else:
             # 实时写入模式，将所有向量写入文件
             vector_writer.write_to_file()
-        
+
         text_callback(f"向量化完成: 成功 {successful} 个，失败 {failed} 个")
         
     except Exception as e:
         text_callback(f"向量化过程异常: {str(e)}")
+        if realtime_write and vector_writer is not None:
+            vector_writer.abort()
         raise
 
 
