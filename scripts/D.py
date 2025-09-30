@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import math
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -63,6 +64,44 @@ def _predict_single(booster: "lgb.Booster", file_path: Path, threshold: float) -
     return prob, verdict
 
 
+def _display_probability(prob: float, threshold: float) -> float:
+    """Map raw model probability to a user friendly percentage.
+
+    The mapping guarantees:
+    * values grow strictly as the raw probability increases;
+    * a score equal to the threshold is rendered as ``50.0001`` percent;
+    * the displayed percentage never reaches 100.
+    """
+
+    # Normalise the probability relative to the decision threshold so that
+    # values above the threshold scale towards ``1`` and values below it towards
+    # ``0``.  A logarithmic curve provides a gentle growth rate while preserving
+    # monotonicity.
+    if prob >= threshold:
+        # Map the ``[threshold, 1]`` range to ``[0, 1]`` and apply a logarithmic
+        # easing so that confidence rises slowly for values just above the
+        # threshold and accelerates only for much higher scores.
+        span = max(1e-9, 1.0 - threshold)
+        ratio = (prob - threshold) / span
+        # ``scale_pos`` controls how aggressively the tail grows; a value of ``9``
+        # keeps the increase close to logarithmic while ensuring the maximum
+        # score remains bounded well below 100%.
+        scale_pos = 9.0
+        gain = math.log1p(scale_pos * min(ratio, 1.0)) / math.log1p(scale_pos)
+        percentage = 50.0001 + gain * 49.9997
+    else:
+        # Symmetrically scale values below the threshold.  The logarithmic
+        # profile keeps the perceived risk low until the score drops
+        # substantially below the decision boundary.
+        span = max(1e-9, threshold)
+        ratio = (threshold - prob) / span
+        scale_neg = 9.0
+        reduction = math.log1p(scale_neg * min(ratio, 1.0)) / math.log1p(scale_neg)
+        percentage = 50.0001 - reduction * 49.9997
+
+    return min(99.9999, max(0.0001, percentage))
+
+
 def MODEL_PREDICT(
     input_path: str,
     output_dir: Optional[str] = None,
@@ -110,7 +149,7 @@ def MODEL_PREDICT(
 
     yield PredictionLog(
         type="start",
-        message=f"开始扫描 {target}，使用模型 {model_file}",
+        message=f"开始扫描 {target}\n使用模型 {model_file}",
         total=total_files,
         extra={"output_dir": str(output_root) if output_root else None},
     )
@@ -131,10 +170,14 @@ def MODEL_PREDICT(
     for idx, file_path in enumerate(files, 1):
         try:
             prob, verdict = _predict_single(booster, file_path, threshold)
+            display_prob = _display_probability(prob, threshold)
             processed += 1
             if verdict == "恶意":
                 malicious += 1
-            message = f"{idx}/{total_files} {file_path} -> {prob:.6f} ({verdict})"
+            message = (
+                f"{idx}/{total_files} {file_path} -> 恶意概率: {display_prob:.6f}% "
+                # f"({verdict}, 恶意概率 {display_prob:.4f}%)"
+            )
             log_type = "progress"
         except Exception as exc:  # pragma: no cover - runtime feedback
             message = f"{idx}/{total_files} {file_path} -> 预测失败: {exc}"
