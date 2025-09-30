@@ -72,14 +72,33 @@ def _display_probability(prob: float, threshold: float) -> float:
     * the displayed percentage never reaches 100.
     """
 
-    # Shift the probability relative to the threshold so the logistic curve
-    # centres around the decision boundary.  A moderate scale keeps the curve
-    # smooth while still highlighting confident predictions.
-    delta = prob - threshold
-    scaled = delta * 35.0
-    confidence = 1.0 / (1.0 + math.exp(-scaled))
-    percentage = confidence * 100.0 + 0.0001
-    return min(99.9999, percentage)
+    # Normalise the probability relative to the decision threshold so that
+    # values above the threshold scale towards ``1`` and values below it towards
+    # ``0``.  A logarithmic curve provides a gentle growth rate while preserving
+    # monotonicity.
+    if prob >= threshold:
+        # Map the ``[threshold, 1]`` range to ``[0, 1]`` and apply a logarithmic
+        # easing so that confidence rises slowly for values just above the
+        # threshold and accelerates only for much higher scores.
+        span = max(1e-9, 1.0 - threshold)
+        ratio = (prob - threshold) / span
+        # ``scale_pos`` controls how aggressively the tail grows; a value of ``9``
+        # keeps the increase close to logarithmic while ensuring the maximum
+        # score remains bounded well below 100%.
+        scale_pos = 9.0
+        gain = math.log1p(scale_pos * min(ratio, 1.0)) / math.log1p(scale_pos)
+        percentage = 50.0001 + gain * 49.9997
+    else:
+        # Symmetrically scale values below the threshold.  The logarithmic
+        # profile keeps the perceived risk low until the score drops
+        # substantially below the decision boundary.
+        span = max(1e-9, threshold)
+        ratio = (threshold - prob) / span
+        scale_neg = 9.0
+        reduction = math.log1p(scale_neg * min(ratio, 1.0)) / math.log1p(scale_neg)
+        percentage = 50.0001 - reduction * 49.9997
+
+    return min(99.9999, max(0.0001, percentage))
 
 
 def MODEL_PREDICT(
