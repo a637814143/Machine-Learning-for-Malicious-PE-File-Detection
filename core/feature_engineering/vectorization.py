@@ -26,13 +26,21 @@ from sklearn.feature_extraction import FeatureHasher
 class ThreadSafeVectorWriter:
     """线程安全的向量实时写入器"""
 
-    def __init__(self, save_path: str, vector_size: int, text_callback=None):
+    def __init__(
+        self,
+        save_path: str,
+        vector_size: int,
+        text_callback=None,
+        flush_size: int = 300_000,
+    ):
         self.save_path = save_path
         self.vector_size = vector_size
         self.text_callback = text_callback or (lambda x: None)
         self.lock = threading.Lock()
-        self.vectors = []
+        self.vectors: List[Tuple[int, np.ndarray, int, str]] = []
         self.written_count = 0
+        self.flush_size = flush_size
+        self.chunk_files: List[Path] = []
 
     def add_vector(
         self,
@@ -47,20 +55,81 @@ class ThreadSafeVectorWriter:
             self.written_count += 1
             if path:
                 self.text_callback(f"已缓存向量 {self.written_count}: {Path(path).name}")
+            if len(self.vectors) >= self.flush_size:
+                self.text_callback(
+                    f"缓存达到 {self.flush_size} 条，正在写入临时文件..."
+                )
+                self._flush_to_disk_locked()
+
+    def _chunk_path(self, index: int) -> Path:
+        base = Path(self.save_path)
+        suffix = base.suffix or ""
+        if suffix:
+            return base.with_suffix(f"{suffix}.chunk{index}.npz")
+        return base.with_suffix(f".chunk{index}.npz")
+
+    def _flush_to_disk_locked(self) -> None:
+        if not self.vectors:
+            return
+
+        # 按索引排序以保持顺序
+        self.vectors.sort(key=lambda x: x[0])
+
+        vectors_only = [vec for _, vec, _, _ in self.vectors]
+        labels_only = [label for _, _, label, _ in self.vectors]
+
+        features_array = (
+            np.vstack(vectors_only)
+            if vectors_only
+            else np.empty((0, self.vector_size), dtype=np.float32)
+        )
+        labels_array = (
+            np.asarray(labels_only, dtype=np.int64)
+            if labels_only
+            else np.empty((0,), dtype=np.int64)
+        )
+
+        chunk_index = len(self.chunk_files)
+        chunk_path = self._chunk_path(chunk_index)
+        np.savez(chunk_path, x=features_array, y=labels_array)
+        self.chunk_files.append(chunk_path)
+        self.vectors.clear()
+        self.text_callback(
+            f"已写入临时块 {chunk_index + 1}，包含 {features_array.shape[0]} 条向量"
+        )
 
     def write_to_file(self):
         """将所有向量写入文件"""
+        chunk_files: List[Path] = []
+        in_memory_vectors: List[Tuple[int, np.ndarray, int, str]] = []
+        total_written = 0
+
         with self.lock:
-            if not self.vectors:
+            total_written = self.written_count
+            if total_written == 0 and not self.vectors and not self.chunk_files:
                 self.text_callback("没有向量需要写入")
                 return
 
-            # 按索引排序
-            self.vectors.sort(key=lambda x: x[0])
+            if self.chunk_files:
+                if self.vectors:
+                    self._flush_to_disk_locked()
+                chunk_files = list(self.chunk_files)
+            else:
+                in_memory_vectors = list(self.vectors)
 
-            # 提取向量、标签
-            vectors_only = [vec for _, vec, _, _ in self.vectors]
-            labels_only = [label for _, _, label, _ in self.vectors]
+            self.vectors.clear()
+            self.chunk_files.clear()
+
+        if chunk_files:
+            self._combine_chunks(chunk_files, total_written)
+        else:
+            if not in_memory_vectors:
+                self.text_callback("没有向量需要写入")
+                return
+
+            in_memory_vectors.sort(key=lambda x: x[0])
+            vectors_only = [vec for _, vec, _, _ in in_memory_vectors]
+            labels_only = [label for _, _, label, _ in in_memory_vectors]
 
             features_array = (
                 np.vstack(vectors_only)
@@ -73,16 +142,62 @@ class ThreadSafeVectorWriter:
                 else np.empty((0,), dtype=np.int64)
             )
 
-            # 写入文件，保持特征和标签对应
             np.save(self.save_path, {"x": features_array, "y": labels_array})
             self.text_callback(
-                f"向量化完成，共写入 {len(vectors_only)} 个向量到 {self.save_path}"
+                f"向量化完成，共写入 {features_array.shape[0]} 个向量到 {self.save_path}"
             )
 
     def get_written_count(self):
         """获取已写入的数量"""
         with self.lock:
             return self.written_count
+
+    def _combine_chunks(self, chunk_files: List[Path], total_written: int) -> None:
+        base = Path(self.save_path)
+        tmp_vectors_path = base.parent / f"{base.name}.tmp_x.npy"
+        tmp_labels_path = base.parent / f"{base.name}.tmp_y.npy"
+
+        vectors_memmap = np.lib.format.open_memmap(
+            tmp_vectors_path,
+            mode="w+",
+            dtype=np.float32,
+            shape=(total_written, self.vector_size),
+        )
+        labels_memmap = np.lib.format.open_memmap(
+            tmp_labels_path,
+            mode="w+",
+            dtype=np.int64,
+            shape=(total_written,),
+        )
+
+        offset = 0
+        try:
+            for chunk_path in chunk_files:
+                with np.load(chunk_path) as chunk:
+                    vectors_chunk = chunk["x"]
+                    labels_chunk = chunk["y"]
+
+                end = offset + vectors_chunk.shape[0]
+                vectors_memmap[offset:end] = vectors_chunk
+                labels_memmap[offset:end] = labels_chunk
+                offset = end
+                chunk_path.unlink(missing_ok=True)
+
+            vectors_memmap.flush()
+            labels_memmap.flush()
+
+            np.save(
+                self.save_path,
+                {"x": vectors_memmap, "y": labels_memmap},
+            )
+            self.text_callback(
+                f"向量化完成，共写入 {total_written} 个向量到 {self.save_path}"
+            )
+        finally:
+            del vectors_memmap
+            del labels_memmap
+            tmp_vectors_path.unlink(missing_ok=True)
+            tmp_labels_path.unlink(missing_ok=True)
 
 
 # Feature layout configuration -----------------------------------------------
