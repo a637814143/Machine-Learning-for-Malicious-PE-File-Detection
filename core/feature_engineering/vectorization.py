@@ -40,7 +40,8 @@ class ThreadSafeVectorWriter:
         self.vectors: List[Tuple[int, np.ndarray, int, str]] = []
         self.written_count = 0
         self.flush_size = flush_size
-        self.chunk_files: List[Path] = []
+        self.chunk_paths: Dict[int, Path] = {}
+        self.chunk_counter = 0
 
     def add_vector(
         self,
@@ -50,16 +51,19 @@ class ThreadSafeVectorWriter:
         path: str = "",
     ):
         """添加向量到缓存"""
+        flush_job: Tuple[int, List[Tuple[int, np.ndarray, int, str]]] | None = None
         with self.lock:
             self.vectors.append((index, vector, label, path))
             self.written_count += 1
             if path:
                 self.text_callback(f"已缓存向量 {self.written_count}: {Path(path).name}")
             if len(self.vectors) >= self.flush_size:
-                self.text_callback(
-                    f"缓存达到 {self.flush_size} 条，正在写入临时文件..."
-                )
-                self._flush_to_disk_locked()
+                flush_job = self._schedule_flush_locked()
+
+        if flush_job:
+            chunk_index, entries = flush_job
+            self.text_callback(f"缓存达到 {self.flush_size} 条，正在写入临时文件...")
+            self._flush_chunk(chunk_index, entries)
 
     def _chunk_path(self, index: int) -> Path:
         base = Path(self.save_path)
@@ -68,15 +72,25 @@ class ThreadSafeVectorWriter:
             return base.with_suffix(f"{suffix}.chunk{index}.npz")
         return base.with_suffix(f".chunk{index}.npz")
 
-    def _flush_to_disk_locked(self) -> None:
-        if not self.vectors:
+    def _schedule_flush_locked(
+        self,
+    ) -> Tuple[int, List[Tuple[int, np.ndarray, int, str]]]:
+        entries = self.vectors
+        self.vectors = []
+        chunk_index = self.chunk_counter
+        self.chunk_counter += 1
+        return chunk_index, entries
+
+    def _flush_chunk(
+        self, chunk_index: int, entries: List[Tuple[int, np.ndarray, int, str]]
+    ) -> None:
+        if not entries:
             return
 
-        # 按索引排序以保持顺序
-        self.vectors.sort(key=lambda x: x[0])
+        entries.sort(key=lambda x: x[0])
 
-        vectors_only = [vec for _, vec, _, _ in self.vectors]
-        labels_only = [label for _, _, label, _ in self.vectors]
+        vectors_only = [vec for _, vec, _, _ in entries]
+        labels_only = [label for _, _, label, _ in entries]
 
         features_array = (
             np.vstack(vectors_only)
@@ -89,11 +103,12 @@ class ThreadSafeVectorWriter:
             else np.empty((0,), dtype=np.int64)
         )
 
-        chunk_index = len(self.chunk_files)
         chunk_path = self._chunk_path(chunk_index)
         np.savez(chunk_path, x=features_array, y=labels_array)
-        self.chunk_files.append(chunk_path)
-        self.vectors.clear()
+
+        with self.lock:
+            self.chunk_paths[chunk_index] = chunk_path
+
         self.text_callback(
             f"已写入临时块 {chunk_index + 1}，包含 {features_array.shape[0]} 条向量"
         )
@@ -104,21 +119,35 @@ class ThreadSafeVectorWriter:
         in_memory_vectors: List[Tuple[int, np.ndarray, int, str]] = []
         total_written = 0
 
+        flush_job: Tuple[int, List[Tuple[int, np.ndarray, int, str]]] | None = None
+
         with self.lock:
             total_written = self.written_count
-            if total_written == 0 and not self.vectors and not self.chunk_files:
+            if total_written == 0 and not self.vectors and not self.chunk_paths:
                 self.text_callback("没有向量需要写入")
                 return
 
-            if self.chunk_files:
+            if self.chunk_paths:
                 if self.vectors:
-                    self._flush_to_disk_locked()
-                chunk_files = list(self.chunk_files)
+                    flush_job = self._schedule_flush_locked()
             else:
                 in_memory_vectors = list(self.vectors)
+                self.vectors.clear()
 
+        if flush_job:
+            chunk_index, entries = flush_job
+            self.text_callback("正在写入剩余缓存到临时文件...")
+            self._flush_chunk(chunk_index, entries)
+
+        with self.lock:
+            if self.chunk_paths:
+                chunk_files = [
+                    self.chunk_paths[index]
+                    for index in sorted(self.chunk_paths.keys())
+                ]
             self.vectors.clear()
-            self.chunk_files.clear()
+            self.chunk_paths.clear()
+            self.chunk_counter = 0
 
         if chunk_files:
             self._combine_chunks(chunk_files, total_written)
