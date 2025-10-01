@@ -45,8 +45,8 @@ class ThreadSafeVectorWriter:
         with self.lock:
             self.vectors.append((index, vector, label, path))
             self.written_count += 1
-            if path:
-                self.text_callback(f"已缓存向量 {self.written_count}: {Path(path).name}")
+            '''if path:
+                self.text_callback(f"已缓存向量 {self.written_count}: {Path(path).name}")'''
 
     def write_to_file(self):
         """将所有向量写入文件"""
@@ -534,7 +534,7 @@ def vectorize_feature_file(
                             vectors[result_idx] = vec
                             labels[result_idx] = label
                         successful += 1
-                        text_callback(f"已转换 {path}")
+                        # text_callback(f"已转换 {path}")
                     else:
                         if not realtime_write:
                             vectors[result_idx] = np.zeros(
