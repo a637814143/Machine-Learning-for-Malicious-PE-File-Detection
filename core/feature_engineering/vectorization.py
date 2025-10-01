@@ -546,6 +546,7 @@ def vectorize_feature_file(
     text_callback=None,
     max_workers: int = None,
     realtime_write: bool = True,
+    skip_paths: Sequence[str] | None = None,
 ) -> None:
     """Vectorise features stored in ``json_path`` and save to ``save_path``.
 
@@ -554,7 +555,9 @@ def vectorize_feature_file(
     :func:`static_features.extract_from_directory`) or place the EMBER-style
     feature blocks directly at the top level (official EMBER JSONL export).
     ``save_path`` will be written in NumPy ``.npy`` format containing an
-    array of shape ``(num_files, VECTOR_SIZE)``.
+    array of shape ``(num_files, VECTOR_SIZE)``. ``skip_paths`` can be used to
+    provide identifiers (file paths, hashes, etc.) that should be ignored
+    during vectorisation when they appear in the JSON records.
     """
     save_path += '/' + NAME_RULE(only_time=True)
     print(save_path)
@@ -584,6 +587,21 @@ def vectorize_feature_file(
     write_mode = "实时写入" if realtime_write else "批量写入"
     text_callback(f"开始向量化 {total} 个特征，使用 {max_workers} 个线程，{write_mode}模式")
 
+    skip_tokens = {
+        token.strip().casefold()
+        for token in (skip_paths or [])
+        if isinstance(token, str) and token.strip()
+    }
+
+    def should_skip(path_identifier: str) -> bool:
+        if not skip_tokens or not path_identifier:
+            return False
+        identifier = str(path_identifier)
+        if identifier.casefold() in skip_tokens:
+            return True
+        name = Path(identifier).name
+        return name.casefold() in skip_tokens
+
     def process_line(line_data, vector_writer=None):
         """处理单行数据的向量化"""
         idx, line = line_data
@@ -596,7 +614,7 @@ def vectorize_feature_file(
             if vector_writer:
                 zero_vec = np.zeros(VECTOR_SIZE, dtype=np.float32)
                 vector_writer.add_vector(zero_vec, idx, label, path)
-            return idx, None, label, path, False, str(exc)
+            return idx, None, label, path, False, str(exc), False
 
         features = record.get("features")
         if not features:
@@ -626,6 +644,9 @@ def vectorize_feature_file(
             or f"line_{idx}"
         )
 
+        if should_skip(path):
+            return idx, None, label, path, False, None, True
+
         try:
             vec = _vectorize_entry(features)
 
@@ -633,14 +654,14 @@ def vectorize_feature_file(
             if vector_writer:
                 vector_writer.add_vector(vec, idx, label, path)
 
-            return idx, vec, label, path, True, None
+            return idx, vec, label, path, True, None, False
         except Exception as e:
             # 失败时也写入零向量
             if vector_writer:
                 zero_vec = np.zeros(VECTOR_SIZE, dtype=np.float32)
                 vector_writer.add_vector(zero_vec, idx, label, path)
 
-            return idx, None, label, path, False, str(e)
+            return idx, None, label, path, False, str(e), False
 
     # 创建实时向量写入器
     vector_writer = None
@@ -658,6 +679,7 @@ def vectorize_feature_file(
     labels = [None] * total if not realtime_write else None
     successful = 0
     failed = 0
+    skipped = 0
 
     try:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -671,9 +693,23 @@ def vectorize_feature_file(
             for future in as_completed(future_to_idx):
                 idx = future_to_idx[future]
                 try:
-                    result_idx, vec, label, path, success, error = future.result()
+                    (
+                        result_idx,
+                        vec,
+                        label,
+                        path,
+                        success,
+                        error,
+                        was_skipped,
+                    ) = future.result()
 
-                    if success:
+                    if was_skipped:
+                        skipped += 1
+                        if not realtime_write:
+                            vectors[result_idx] = None
+                            labels[result_idx] = None
+                        text_callback(f"跳过 {path}")
+                    elif success:
                         if not realtime_write:
                             vectors[result_idx] = vec
                             labels[result_idx] = label
@@ -689,7 +725,7 @@ def vectorize_feature_file(
                         text_callback(f"转换失败 {path}: {error}")
                     
                     # 更新进度
-                    progress_callback(int((successful + failed) / total * 100))
+                    progress_callback(int((successful + failed + skipped) / total * 100))
                     
                 except Exception as e:
                     if not realtime_write:
@@ -697,7 +733,7 @@ def vectorize_feature_file(
                         labels[idx] = 0
                     failed += 1
                     text_callback(f"处理异常 line_{idx}: {str(e)}")
-                    progress_callback(int((successful + failed) / total * 100))
+                    progress_callback(int((successful + failed + skipped) / total * 100))
 
         # 如果不是实时写入模式，需要批量写入
         if not realtime_write:
@@ -719,7 +755,9 @@ def vectorize_feature_file(
             # 实时写入模式，将所有向量写入文件
             vector_writer.write_to_file()
         
-        text_callback(f"向量化完成: 成功 {successful} 个，失败 {failed} 个")
+        text_callback(
+            f"向量化完成: 成功 {successful} 个，失败 {failed} 个，跳过 {skipped} 个"
+        )
         
     except Exception as e:
         text_callback(f"向量化过程异常: {str(e)}")

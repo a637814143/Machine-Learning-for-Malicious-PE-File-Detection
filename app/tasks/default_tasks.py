@@ -105,8 +105,36 @@ def feature_vector_task(args, progress, text):
         if args[3].lower() in ['false', '0', 'no', 'batch']:
             realtime_write = False
 
+    skip_identifiers = []
+    if len(args) > 4:
+        for extra in args[4:]:
+            candidate = extra.strip()
+            if not candidate:
+                continue
+            candidate_path = Path(candidate)
+            if candidate_path.exists() and candidate_path.is_file():
+                try:
+                    with candidate_path.open('r', encoding='utf-8') as fh:
+                        for line in fh:
+                            item = line.strip()
+                            if item:
+                                skip_identifiers.append(item)
+                except OSError as exc:
+                    text(f"读取跳过列表失败 {candidate}: {exc}")
+            else:
+                skip_identifiers.extend(
+                    item.strip()
+                    for item in candidate.split(',')
+                    if item.strip()
+                )
+
+    skip_arg = skip_identifiers or None
+    if skip_arg:
+        text(f"已配置跳过 {len(skip_arg)} 个特征标识")
+
     vectorize_feature_file(src, dst, progress_callback=progress, text_callback=text,
-                          max_workers=max_workers, realtime_write=realtime_write)
+                          max_workers=max_workers, realtime_write=realtime_write,
+                          skip_paths=skip_arg)
     text("特征向量化完成")
 
 
