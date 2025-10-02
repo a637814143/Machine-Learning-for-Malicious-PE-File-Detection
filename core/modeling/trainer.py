@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import contextlib
 from dataclasses import dataclass
+import pickle
 import inspect
 import numbers
 import os
 from os import PathLike
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, Union
+import warnings
 
 import numpy as np
 from numpy.lib.npyio import NpzFile
@@ -167,12 +169,25 @@ def _load_dataset_bundle(vector_file: Pathish) -> DatasetBundle:
     if not path.exists():
         raise FileNotFoundError(f"向量文件不存在: {path}")
 
-    loaded = np.load(path, allow_pickle=True)
+    try:
+        loaded = np.load(path, allow_pickle=False)
+        used_pickle = False
+    except (ValueError, pickle.UnpicklingError):
+        loaded = np.load(path, allow_pickle=True)
+        used_pickle = True
+
     try:
         features, labels = _extract_from_saved_object(loaded)
     finally:
         if isinstance(loaded, NpzFile):
             loaded.close()
+
+    if used_pickle:
+        warnings.warn(
+            "向量文件依赖 pickle 反序列化，建议使用最新的向量化脚本重新生成以获得 .npz 格式。",
+            RuntimeWarning,
+            stacklevel=2,
+        )
     return DatasetBundle(features, labels)
 
 
@@ -310,7 +325,8 @@ def train_ember_model_from_npy(
     text_callback=None,
     status_callback=None,
 ) -> Any:
-    """Train a LightGBM model using feature/label arrays stored in ``.npy`` files."""
+    """Train a LightGBM model using feature/label arrays stored in ``.npz``
+    archives (legacy ``.npy`` pickle files remain supported)."""
 
     _require_lightgbm()
 
