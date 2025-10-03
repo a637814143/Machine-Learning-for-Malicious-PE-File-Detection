@@ -5,6 +5,20 @@ This project aims to build a machine learning-based system to detect malicious P
 It integrates feature extraction, model training, prediction, and reporting, with a GUI for easy analysis and visualization.  
 The goal is to provide a complete pipeline for malware detection and threat assessment.
 
+## NumPy 2 Compatibility
+
+Upgrading to NumPy 2.x requires rebuilding binary dependencies that ship
+pre-compiled extension modules. If you encounter errors such as
+``AttributeError: _ARRAY_API not found`` while importing LightGBM or
+Matplotlib, force-reinstall the affected packages after upgrading NumPy:
+
+```bash
+pip install --upgrade --force-reinstall matplotlib lightgbm
+```
+
+The project requirements already pin versions that publish NumPy 2 wheels,
+but existing environments might still host legacy builds compiled against
+NumPy 1.x.
 
 ---
 

@@ -6,6 +6,18 @@
 系统集成了特征提取、模型训练、预测和报告功能，并提供 GUI 界面以便进行分析和可视化。
 目标是提供一个完整的恶意软件检测和威胁评估管道。
 
+## NumPy 2 兼容性
+
+升级到 NumPy 2.x 后，所有包含 C 扩展的依赖都需要使用新版本重新编译。
+如果在导入 LightGBM 或 Matplotlib 时看到 ``AttributeError: _ARRAY_API not found``
+之类的错误，请在升级 NumPy 后强制重新安装相关依赖：
+
+```bash
+pip install --upgrade --force-reinstall matplotlib lightgbm
+```
+
+项目的依赖文件已经锁定了提供 NumPy 2 轮子的版本，但现有环境中可能仍然存在
+基于旧版 NumPy 构建的二进制文件，需要手动更新。
 
 ---
 
