@@ -10,17 +10,16 @@ import numbers
 import os
 from os import PathLike
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, Union
 import warnings
 
 import numpy as np
 from numpy.lib.npyio import NpzFile
 
-try:  # pragma: no cover - optional dependency during tests
+if TYPE_CHECKING:  # pragma: no cover - type hints only
     import lightgbm as lgb  # type: ignore
-except Exception as e:  # pragma: no cover
-    lgb = None  # type: ignore
-    print(e)
+
+_LIGHTGBM_MODULE: Optional["lgb"] = None
 
 from core.feature_engineering.vectorization import VECTOR_SIZE
 from .model_factory import LightGBMConfig, build_ember_lightgbm_config
@@ -51,19 +50,40 @@ class DatasetBundle:
             )
 
 
-def _require_lightgbm() -> None:
-    if lgb is None:  # pragma: no cover - runtime guard
+def _import_lightgbm() -> "lgb":
+    """Import LightGBM lazily and provide actionable error messages."""
+
+    global _LIGHTGBM_MODULE
+    if _LIGHTGBM_MODULE is not None:
+        return _LIGHTGBM_MODULE
+
+    try:  # pragma: no cover - exercised in integration
+        import lightgbm as lgb_module  # type: ignore
+    except ImportError as exc:  # pragma: no cover - optional dependency missing
         raise ImportError(
             "缺少 lightgbm 库，无法训练模型。请运行 'pip install lightgbm' 后重试。"
-        )
+        ) from exc
+    except Exception as exc:  # pragma: no cover - dependency ABI mismatch
+        message = str(exc)
+        if "_ARRAY_API" in message or "numpy" in message:
+            raise RuntimeError(
+                "检测到依赖库与当前 NumPy 版本不兼容。"
+                "请升级或重新安装 lightgbm/matplotlib 等二进制依赖，"
+                "确保它们使用 NumPy 2.x 重新构建 (例如执行"
+                " 'pip install --upgrade --force-reinstall matplotlib lightgbm')."
+            ) from exc
+        raise
+
+    _LIGHTGBM_MODULE = lgb_module
+    return lgb_module
 
 
 def _lightgbm_train_supports_parameter(name: str) -> bool:
     """Return whether ``lgb.train`` accepts the given keyword argument."""
 
-    _require_lightgbm()
+    lgb_module = _import_lightgbm()
     try:
-        signature = inspect.signature(lgb.train)
+        signature = inspect.signature(lgb_module.train)
     except (TypeError, ValueError):  # pragma: no cover - CPython internal error
         return True
     return name in signature.parameters
@@ -265,12 +285,12 @@ def _ensure_model_path_writable(output_path: Path) -> Path:
 def _prepare_valid_sets(
     valid_bundles: Sequence[Tuple[str, DatasetBundle]]
 ) -> Tuple[List[Any], List[str]]:
-    _require_lightgbm()
-    valid_sets: List[lgb.Dataset] = []
+    lgb_module = _import_lightgbm()
+    valid_sets: List[Any] = []
     valid_names: List[str] = []
     for name, bundle in valid_bundles:
         valid_sets.append(
-            lgb.Dataset(bundle.vectors, label=bundle.labels, free_raw_data=False)
+            lgb_module.Dataset(bundle.vectors, label=bundle.labels, free_raw_data=False)
         )
         valid_names.append(name)
     return valid_sets, valid_names
@@ -282,7 +302,6 @@ def _make_progress_callback(
     text_callback: Optional[callable],
     report_every: int = 10,
 ) -> Optional[Any]:
-    _require_lightgbm()
     if progress_callback is None and text_callback is None:
         return None
 
@@ -328,7 +347,7 @@ def train_ember_model_from_npy(
     """Train a LightGBM model using feature/label arrays stored in ``.npz``
     archives (legacy ``.npy`` pickle files remain supported)."""
 
-    _require_lightgbm()
+    lgb_module = _import_lightgbm()
 
     # ``status_callback`` was used by earlier UI code as the textual channel while
     # ``text_callback`` is the modern equivalent.  Support both to remain
@@ -375,7 +394,9 @@ def train_ember_model_from_npy(
         early_stopping_rounds=early_stopping_rounds,
     )
 
-    dtrain = lgb.Dataset(train_bundle.vectors, label=train_bundle.labels, free_raw_data=False)
+    dtrain = lgb_module.Dataset(
+        train_bundle.vectors, label=train_bundle.labels, free_raw_data=False
+    )
     valid_sets, valid_names = _prepare_valid_sets(valid_bundles)
 
     callbacks: List[Any] = []
@@ -398,8 +419,8 @@ def train_ember_model_from_npy(
     fallback_callback: Optional[Any] = None
     fallback_applied = False
     if config.early_stopping_rounds is not None:
-        if hasattr(lgb, "early_stopping"):
-            fallback_callback = lgb.early_stopping(config.early_stopping_rounds)
+        if hasattr(lgb_module, "early_stopping"):
+            fallback_callback = lgb_module.early_stopping(config.early_stopping_rounds)
 
         if _lightgbm_train_supports_parameter("early_stopping_rounds"):
             train_kwargs["early_stopping_rounds"] = config.early_stopping_rounds
@@ -417,7 +438,7 @@ def train_ember_model_from_npy(
 
     with _redirect_lightgbm_logs(text_callback):
         try:
-            booster = lgb.train(
+            booster = lgb_module.train(
                 config.params,
                 dtrain,
                 **train_kwargs,
@@ -443,7 +464,7 @@ def train_ember_model_from_npy(
                     "当前 LightGBM 版本不支持提前停止参数，将继续训练直至最大轮次。"
                 )
 
-            booster = lgb.train(
+            booster = lgb_module.train(
                 config.params,
                 dtrain,
                 **train_kwargs,
@@ -488,14 +509,12 @@ def train_ember_model_from_npy(
 def _redirect_lightgbm_logs(text_callback):
     """Route LightGBM 的日志到回调，并禁止其直接输出到控制台。"""
 
-    if lgb is None:  # pragma: no cover - runtime guard
-        yield
-        return
+    lgb_module = _import_lightgbm()
 
     try:
-        previous_logger = lgb.basic._LOGGER
-        previous_info = lgb.basic._INFO_METHOD_NAME
-        previous_warning = lgb.basic._WARNING_METHOD_NAME
+        previous_logger = lgb_module.basic._LOGGER
+        previous_info = lgb_module.basic._INFO_METHOD_NAME
+        previous_warning = lgb_module.basic._WARNING_METHOD_NAME
     except AttributeError:  # pragma: no cover - unexpected LightGBM internals
         yield
         return
@@ -513,13 +532,13 @@ def _redirect_lightgbm_logs(text_callback):
                 self._callback(message)
 
     logger = _CallbackLogger(text_callback)
-    lgb.register_logger(logger)
+    lgb_module.register_logger(logger)
     try:
         yield
     finally:
         try:
-            lgb.register_logger(previous_logger, previous_info, previous_warning)
+            lgb_module.register_logger(previous_logger, previous_info, previous_warning)
         except TypeError:  # pragma: no cover - fallback for unexpected logger
-            lgb.basic._LOGGER = previous_logger
-            lgb.basic._INFO_METHOD_NAME = previous_info
-            lgb.basic._WARNING_METHOD_NAME = previous_warning
+            lgb_module.basic._LOGGER = previous_logger
+            lgb_module.basic._INFO_METHOD_NAME = previous_info
+            lgb_module.basic._WARNING_METHOD_NAME = previous_warning
