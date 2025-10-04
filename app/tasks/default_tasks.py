@@ -1,3 +1,4 @@
+
 import time
 from pathlib import Path
 from .registry import register_task
@@ -114,7 +115,7 @@ def feature_vector_task(args, progress, text):
 def train_model_task(args, progress, text):
     """Train an EMBER 兼容的 LightGBM 模型."""
     if len(args) < 2:
-        text("需要提供特征向量 .npy 文件路径和模型保存目录")
+        text("需要提供特征向量 .npz（推荐）或 .npy 文件路径和模型保存目录")
         return
 
     npy_path, output_dir = args[0], args[1]

@@ -12,48 +12,68 @@ by EMBER.
 from __future__ import annotations
 
 import json
-from typing import Dict, Iterable, List, Sequence, Tuple
+from pathlib import Path
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
-from pathlib import Path
-
 import numpy as np
 from scripts.FILE_NAME import NAME_RULE
 
 from sklearn.feature_extraction import FeatureHasher
 
+PER_NUM = 5000
+def _save_vector_bundle(
+        base_path: str | Path,
+        features_array: np.ndarray,
+        labels_array: np.ndarray,
+) -> Path:
+    """Save feature and label arrays using ``.npz`` (pickle-free) format."""
+
+    target = Path(base_path)
+    if target.suffix.lower() != ".npz":
+        target = target.with_suffix(".npz")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(target, x=features_array, y=labels_array)
+    return target
+
 
 class ThreadSafeVectorWriter:
     """线程安全的向量实时写入器"""
 
-    def __init__(self, save_path: str, vector_size: int, text_callback=None):
-        self.save_path = save_path
+    def __init__(
+            self,
+            save_path: str | Path,
+            vector_size: int,
+            text_callback=None,
+    ) -> None:
+        self.base_path = Path(save_path)
         self.vector_size = vector_size
         self.text_callback = text_callback or (lambda x: None)
         self.lock = threading.Lock()
-        self.vectors = []
+        self.vectors: List[Tuple[int, np.ndarray, int, str]] = []
         self.written_count = 0
+        self.output_path: Optional[Path] = None
 
     def add_vector(
-        self,
-        vector: np.ndarray,
-        index: int,
-        label: int,
-        path: str = "",
+            self,
+            vector: np.ndarray,
+            index: int,
+            label: int,
+            path: str = "",
     ):
         """添加向量到缓存"""
         with self.lock:
             self.vectors.append((index, vector, label, path))
             self.written_count += 1
-            '''if path:
-                self.text_callback(f"已缓存向量 {self.written_count}: {Path(path).name}")'''
+            if not self.written_count % PER_NUM:
+                self.text_callback(f"已缓存向量 {self.written_count}: {Path(path).name}")
 
-    def write_to_file(self):
+    def write_to_file(self) -> Optional[Path]:
         """将所有向量写入文件"""
         with self.lock:
             if not self.vectors:
                 self.text_callback("没有向量需要写入")
-                return
+                return self.output_path
 
             # 按索引排序
             self.vectors.sort(key=lambda x: x[0])
@@ -74,10 +94,17 @@ class ThreadSafeVectorWriter:
             )
 
             # 写入文件，保持特征和标签对应
-            np.save(self.save_path, {"x": features_array, "y": labels_array})
-            self.text_callback(
-                f"向量化完成，共写入 {len(vectors_only)} 个向量到 {self.save_path}"
+            self.output_path = _save_vector_bundle(
+                self.base_path, features_array, labels_array
             )
+            destination = str(self.output_path) if self.output_path else None
+            message = (
+                f"向量化完成，共写入 {len(vectors_only)} 个向量到 {destination}"
+                if destination
+                else f"向量化完成，共写入 {len(vectors_only)} 个向量"
+            )
+            self.text_callback(message)
+            return self.output_path
 
     def get_written_count(self):
         """获取已写入的数量"""
@@ -151,24 +178,24 @@ IMPORT_FUNC_HASH_SIZE = 1024
 EXPORT_HASH_SIZE = 128
 
 VECTOR_SIZE = (
-    BYTE_HIST_SIZE
-    + BYTE_ENTROPY_HIST_SIZE
-    + len(STRING_LEADING_FIELDS)
-    + PRINTABLE_DIST_SIZE
-    + len(STRING_TRAILING_FIELDS)
-    + len(GENERAL_FEATURES)
-    + HEADER_TIMESTAMP_SIZE
-    + HEADER_MACHINE_HASH_SIZE
-    + HEADER_CHARACTERISTICS_HASH_SIZE
-    + OPTIONAL_SUBSYSTEM_HASH_SIZE
-    + OPTIONAL_DLL_CHARACTERISTICS_HASH_SIZE
-    + OPTIONAL_MAGIC_HASH_SIZE
-    + len(OPTIONAL_NUMERIC_FEATURES)
-    + DATA_DIRECTORY_SIZE
-    + SECTION_VECTOR_SIZE
-    + IMPORT_LIB_HASH_SIZE
-    + IMPORT_FUNC_HASH_SIZE
-    + EXPORT_HASH_SIZE
+        BYTE_HIST_SIZE
+        + BYTE_ENTROPY_HIST_SIZE
+        + len(STRING_LEADING_FIELDS)
+        + PRINTABLE_DIST_SIZE
+        + len(STRING_TRAILING_FIELDS)
+        + len(GENERAL_FEATURES)
+        + HEADER_TIMESTAMP_SIZE
+        + HEADER_MACHINE_HASH_SIZE
+        + HEADER_CHARACTERISTICS_HASH_SIZE
+        + OPTIONAL_SUBSYSTEM_HASH_SIZE
+        + OPTIONAL_DLL_CHARACTERISTICS_HASH_SIZE
+        + OPTIONAL_MAGIC_HASH_SIZE
+        + len(OPTIONAL_NUMERIC_FEATURES)
+        + DATA_DIRECTORY_SIZE
+        + SECTION_VECTOR_SIZE
+        + IMPORT_LIB_HASH_SIZE
+        + IMPORT_FUNC_HASH_SIZE
+        + EXPORT_HASH_SIZE
 )
 
 
@@ -396,12 +423,12 @@ def _vectorize_entry(features: Dict[str, object]) -> np.ndarray:
 
 
 def vectorize_feature_file(
-    json_path: str,
-    save_path: str,
-    progress_callback=None,
-    text_callback=None,
-    max_workers: int = None,
-    realtime_write: bool = True,
+        json_path: str,
+        save_path: str,
+        progress_callback=None,
+        text_callback=None,
+        max_workers: int = None,
+        realtime_write: bool = True,
 ) -> None:
     """Vectorise features stored in ``json_path`` and save to ``save_path``.
 
@@ -409,11 +436,15 @@ def vectorize_feature_file(
     include a ``features`` field (as produced by
     :func:`static_features.extract_from_directory`) or place the EMBER-style
     feature blocks directly at the top level (official EMBER JSONL export).
-    ``save_path`` will be written in NumPy ``.npy`` format containing an
-    array of shape ``(num_files, VECTOR_SIZE)``.
+    ``save_path`` will be persisted as a NumPy ``.npz`` archive containing the
+    feature matrix (``x``) and label vector (``y``).  Existing ``.npy`` files
+    generated by earlier versions remain supported.
     """
-    save_path += '/' + NAME_RULE(only_time=True)
-    print(save_path)
+    output_base = Path(save_path) / NAME_RULE(only_time=True)
+    preview_path = (
+        output_base if output_base.suffix else output_base.with_suffix(".npz")
+    )
+    print(str(preview_path))
     file_path = Path(json_path)
 
     if not file_path.exists():
@@ -476,10 +507,10 @@ def vectorize_feature_file(
             label = 0
 
         path = (
-            record.get("path")
-            or record.get("sha256")
-            or record.get("md5")
-            or f"line_{idx}"
+                record.get("path")
+                or record.get("sha256")
+                or record.get("md5")
+                or f"line_{idx}"
         )
 
         try:
@@ -501,7 +532,7 @@ def vectorize_feature_file(
     # 创建实时向量写入器
     vector_writer = None
     if realtime_write:
-        vector_writer = ThreadSafeVectorWriter(save_path, VECTOR_SIZE, text_callback)
+        vector_writer = ThreadSafeVectorWriter(output_base, VECTOR_SIZE, text_callback)
 
     # 准备数据
     def iter_lines():
@@ -515,6 +546,8 @@ def vectorize_feature_file(
     successful = 0
     failed = 0
 
+    output_path: Optional[Path] = None
+
     try:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             # 提交所有任务
@@ -522,7 +555,7 @@ def vectorize_feature_file(
             for data in iter_lines():
                 future = executor.submit(process_line, data, vector_writer)
                 future_to_idx[future] = data[0]
-            
+
             # 收集结果
             for future in as_completed(future_to_idx):
                 idx = future_to_idx[future]
@@ -534,7 +567,8 @@ def vectorize_feature_file(
                             vectors[result_idx] = vec
                             labels[result_idx] = label
                         successful += 1
-                        # text_callback(f"已转换 {path}")
+                        if not successful % PER_NUM:
+                            text_callback(f"已转换 {successful} / {total}")
                     else:
                         if not realtime_write:
                             vectors[result_idx] = np.zeros(
@@ -543,10 +577,10 @@ def vectorize_feature_file(
                             labels[result_idx] = label
                         failed += 1
                         text_callback(f"转换失败 {path}: {error}")
-                    
+
                     # 更新进度
                     progress_callback(int((successful + failed) / total * 100))
-                    
+
                 except Exception as e:
                     if not realtime_write:
                         vectors[idx] = np.zeros(VECTOR_SIZE, dtype=np.float32)
@@ -570,13 +604,15 @@ def vectorize_feature_file(
             else:
                 array = np.empty((0, VECTOR_SIZE), dtype=np.float32)
                 label_array = np.empty((0,), dtype=np.int64)
-            np.save(save_path, {"x": array, "y": label_array})
+            output_path = _save_vector_bundle(output_base, array, label_array)
         else:
             # 实时写入模式，将所有向量写入文件
-            vector_writer.write_to_file()
-        
+            output_path = vector_writer.write_to_file()
+
         text_callback(f"向量化完成: 成功 {successful} 个，失败 {failed} 个")
-        
+        if output_path is not None:
+            text_callback(f"向量文件已保存到: {str(output_path)}")
+
     except Exception as e:
         text_callback(f"向量化过程异常: {str(e)}")
         raise
