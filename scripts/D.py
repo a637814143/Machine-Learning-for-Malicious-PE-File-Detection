@@ -55,6 +55,20 @@ BENIGN_API_HINTS: Dict[str, str] = {
     "advapi32.regopenkey": "标准的注册表读取操作。",
 }
 
+PACKER_SECTION_KEYWORDS = [
+    "upx",
+    "themida",
+    "aspack",
+    "mpress",
+    "kkrunchy",
+    "petite",
+    "pecompact",
+    "fsg",
+    "enigma",
+    "obsidium",
+]
+
+
 
 @dataclass(frozen=True)
 class PredictionLog:
@@ -137,6 +151,8 @@ def _analyse_features_for_explanation(features: Dict[str, Any]) -> Dict[str, Any
     header = features.get("header") or {}
     coff_header = dict((header.get("coff") or {}))
     optional_header = dict((header.get("optional") or {}))
+    exports = list(features.get("exports") or [])
+    data_directories = list(features.get("datadirectories") or [])
 
     total_imports = 0
     suspicious_hits: List[Dict[str, str]] = []
@@ -162,16 +178,21 @@ def _analyse_features_for_explanation(features: Dict[str, Any]) -> Dict[str, Any
                         break
 
     high_entropy_sections: List[Dict[str, Any]] = []
+    packer_sections: List[str] = []
     entropy_values: List[float] = []
     for sec in sections:
         entropy = float(sec.get("entropy", 0.0) or 0.0)
         entropy_values.append(entropy)
         if entropy >= 7.0 and (sec.get("size") or 0) > 0:
+            sec_name = str(sec.get("name", "")).strip()
             high_entropy_sections.append({
-                "name": str(sec.get("name", "")).strip(),
+                "name": sec_name,
                 "entropy": entropy,
                 "size": int(sec.get("size", 0) or 0),
             })
+        sec_name_lower = str(sec.get("name", "")).lower()
+        if any(keyword in sec_name_lower for keyword in PACKER_SECTION_KEYWORDS):
+            packer_sections.append(sec_name_lower.strip())
 
     avg_entropy = sum(entropy_values) / len(entropy_values) if entropy_values else 0.0
 
@@ -226,6 +247,7 @@ def _analyse_features_for_explanation(features: Dict[str, Any]) -> Dict[str, Any
     url_strings = summary_url_strings = int(strings.get("urls", 0) or 0)
     registry_strings = summary_registry_strings = int(strings.get("registry", 0) or 0)
     printable_strings = int(strings.get("printables", 0) or 0)
+    suspicious_string_samples = list(strings.get("suspicious_strings", []) or [])
 
     _add_risk(
         suspicious_count > 0,
@@ -269,6 +291,25 @@ def _analyse_features_for_explanation(features: Dict[str, Any]) -> Dict[str, Any
         "导出缺失但包含大量代码",
         "文件没有导出函数却导入大量 API，常见于隐蔽的执行主体。",
     )
+    _add_risk(
+        bool(suspicious_string_samples),
+        min(1.5, 0.6 + 0.2 * len(suspicious_string_samples)),
+        "可疑命令行或执行脚本",
+        "检测到疑似命令行/脚本片段，可能用于横向移动或持久化。",
+    )
+    entry_section = str(section_info.get("entry") or "").strip()
+    _add_risk(
+        bool(entry_section) and entry_section.lower() not in {".text", "text"},
+        0.6,
+        "入口点位于非常规节区",
+        f"程序入口位于 `{entry_section or '未知'}` 节区，可能通过壳或自定义载入方式隐藏。",
+    )
+    _add_risk(
+        bool(packer_sections),
+        min(1.8, 0.9 + 0.3 * len(set(packer_sections))),
+        "节区名称疑似壳特征",
+        "节区名包含常见壳标识，可能进行了加壳或混淆。",
+    )
 
     timestamp = int(coff_header.get("timestamp", 0) or 0)
     if timestamp <= 0:
@@ -279,6 +320,7 @@ def _analyse_features_for_explanation(features: Dict[str, Any]) -> Dict[str, Any
     _add_mitigation(bool(benign_hits), "常见系统 API", f"大量导入 {len(benign_hits)} 个 GUI/系统相关 API，符合常见应用行为。")
     _add_mitigation(not high_entropy_sections, "节区熵值平稳", "未检测到高熵节区，代码段分布均衡。")
     _add_mitigation(bool(general.get("has_tls")), "存在 TLS 数据目录", "包含 TLS 初始化数据，常见于正规受保护程序。")
+    _add_mitigation(bool(exports), "存在导出函数", f"检测到 {len(exports)} 个导出函数，可用于合法 API 暴露。")
 
     risk_score = min(10.0, round(risk_score, 2))
     if risk_score >= 6.0:
@@ -287,6 +329,16 @@ def _analyse_features_for_explanation(features: Dict[str, Any]) -> Dict[str, Any
         risk_level = "中等风险"
     else:
         risk_level = "低风险"
+
+    active_data_directories = [
+        {
+            "name": str(entry.get("name", "")),
+            "size": int(entry.get("size", 0) or 0),
+            "virtual_address": int(entry.get("virtual_address", 0) or 0),
+        }
+        for entry in data_directories
+        if entry and int(entry.get("size", 0) or 0) > 0
+    ]
 
     summary = {
         "general": general,
@@ -301,8 +353,21 @@ def _analyse_features_for_explanation(features: Dict[str, Any]) -> Dict[str, Any
         "path_strings": int(strings.get("paths", 0) or 0),
         "printable_strings": int(strings.get("printables", 0) or 0),
         "string_entropy": float(strings.get("entropy", 0.0) or 0.0),
+        "strings_per_kb": float(strings.get("strings_per_kb", 0.0) or 0.0),
+        "string_samples": {
+            "urls": list(strings.get("sample_urls", []) or []),
+            "paths": list(strings.get("sample_paths", []) or []),
+            "registry": list(strings.get("sample_registry", []) or []),
+            "ips": list(strings.get("sample_ips", []) or []),
+            "suspicious": suspicious_string_samples,
+            "longest": list(strings.get("longest_strings", []) or []),
+            "top_chars": list(strings.get("top_printable_chars", []) or []),
+        },
         "section_overview": section_overview,
         "dll_usage": dll_usage,
+        "section_count": len(sections),
+        "entry_section": entry_section,
+        "packer_sections": packer_sections,
         "header": {
             "timestamp": timestamp,
             "machine": coff_header.get("machine", ""),
@@ -312,6 +377,9 @@ def _analyse_features_for_explanation(features: Dict[str, Any]) -> Dict[str, Any
             "sizeof_code": int(optional_header.get("sizeof_code", 0) or 0),
             "sizeof_headers": int(optional_header.get("sizeof_headers", 0) or 0),
         },
+        "exports": exports,
+        "data_directories": data_directories,
+        "active_data_directories": active_data_directories,
         "risk_assessment": {
             "score": risk_score,
             "level": risk_level,
@@ -333,6 +401,10 @@ def _build_reasoning(verdict: str, summary: Dict[str, Any]) -> Dict[str, Any]:
     risk_info = summary.get("risk_assessment", {})
     risk_level = risk_info.get("level")
     risk_score = risk_info.get("score")
+    string_samples = summary.get("string_samples", {})
+    suspicious_strings = string_samples.get("suspicious", []) if isinstance(string_samples, dict) else []
+    packer_sections = summary.get("packer_sections", [])
+    entry_section = summary.get("entry_section")
 
     has_signature = bool(general.get("has_signature"))
     has_tls = bool(general.get("has_tls"))
@@ -356,6 +428,10 @@ def _build_reasoning(verdict: str, summary: Dict[str, Any]) -> Dict[str, Any]:
             bullets.append(f"字符串中包含 {url_strings} 个 URL 片段，疑似具备网络通信能力。")
         if registry_strings:
             bullets.append(f"检测到 {registry_strings} 个注册表路径字符串，可能修改系统配置。")
+        if suspicious_strings:
+            bullets.append("发现疑似命令行或脚本片段，例如：" + "; ".join(suspicious_strings[:3]) + "。")
+        if packer_sections:
+            bullets.append("节区名称包含常见壳标识，疑似经过加壳处理。")
         if not bullets:
             bullets.append("模型判定得分显著高于阈值，整体特征与恶意样本高度相似。")
         headline = "模型认为该文件可能为恶意样本。"
@@ -375,6 +451,8 @@ def _build_reasoning(verdict: str, summary: Dict[str, Any]) -> Dict[str, Any]:
             bullets.append("模型得分低于阈值，整体行为与已知良性样本相似。")
         if has_tls:
             bullets.append("包含 TLS 数据目录，常见于正规受保护程序。")
+        if entry_section:
+            bullets.append(f"入口点位于 `{entry_section}` 节区，符合常见的程序结构。")
         headline = "模型认为该文件更可能为良性样本。"
 
     return {"headline": headline, "bullets": bullets}

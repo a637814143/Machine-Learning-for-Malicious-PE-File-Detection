@@ -432,6 +432,11 @@ class MachineLearningPEUI(QtWidgets.QDialog):
         risk_info = summary.get("risk_assessment", {})
         mitigations = risk_info.get("mitigations", [])
         risk_factors = risk_info.get("factors", [])
+        string_samples = summary.get("string_samples", {})
+        active_data_dirs = summary.get("active_data_directories", [])
+        exports = summary.get("exports", [])
+        packer_sections = summary.get("packer_sections", [])
+        entry_section = summary.get("entry_section")
 
         avg_string_length = float(strings.get("avlength", 0.0) or 0.0)
         printable_strings = int(strings.get("printables", 0) or 0)
@@ -528,6 +533,9 @@ class MachineLearningPEUI(QtWidgets.QDialog):
             f"- 字符串熵: {summary.get('string_entropy', 0.0):.2f}",
             f"- URL 字符串数量: {summary.get('url_strings', 0)}",
             f"- 注册表字符串数量: {summary.get('registry_strings', 0)}",
+            f"- 字符串密度: {summary.get('strings_per_kb', 0.0):.2f} 条/KB",
+            f"- 节区数量: {summary.get('section_count', 0)}",
+            f"- 入口节区: {entry_section or '未知'}",
         ])
 
         if header_info:
@@ -584,6 +592,19 @@ class MachineLearningPEUI(QtWidgets.QDialog):
                     f"- `{sec['name']}` — 大小 {sec['size']} 字节，熵 {sec['entropy']:.2f}"
                 )
 
+        if packer_sections:
+            lines.extend([
+                "",
+                "## 可能的加壳迹象",
+                "",
+            ])
+            unique_packers = []
+            for name in packer_sections:
+                if name not in unique_packers:
+                    unique_packers.append(name)
+            for name in unique_packers:
+                lines.append(f"- 节区名包含 `{name}`，疑似常见壳标识。")
+
         benign_hits = summary.get("benign_api_hits", [])
         if benign_hits:
             lines.extend([
@@ -603,6 +624,80 @@ class MachineLearningPEUI(QtWidgets.QDialog):
                 f"- 平均字符串长度: {avg_string_length:.2f}",
                 f"- MZ 标记次数: {mz_count}",
             ])
+
+        if isinstance(string_samples, dict):
+            url_samples = string_samples.get("urls", [])
+            ip_samples = string_samples.get("ips", [])
+            path_samples = string_samples.get("paths", [])
+            reg_samples = string_samples.get("registry", [])
+            suspicious_strings = string_samples.get("suspicious", [])
+            longest_strings = string_samples.get("longest", [])
+            top_chars = string_samples.get("top_chars", [])
+
+            if url_samples:
+                lines.extend([
+                    "",
+                    "### URL 样本",
+                    "",
+                ])
+                for item in url_samples[:10]:
+                    lines.append(f"- {item}")
+
+            if ip_samples:
+                lines.extend([
+                    "",
+                    "### IP 地址样本",
+                    "",
+                ])
+                for item in ip_samples[:10]:
+                    lines.append(f"- {item}")
+
+            if path_samples:
+                lines.extend([
+                    "",
+                    "### 可疑文件路径样本",
+                    "",
+                ])
+                for item in path_samples[:10]:
+                    lines.append(f"- {item}")
+
+            if reg_samples:
+                lines.extend([
+                    "",
+                    "### 注册表键样本",
+                    "",
+                ])
+                for item in reg_samples[:10]:
+                    lines.append(f"- {item}")
+
+            if suspicious_strings:
+                lines.extend([
+                    "",
+                    "### 可疑命令行 / 脚本片段",
+                    "",
+                ])
+                for item in suspicious_strings[:10]:
+                    lines.append(f"- {item}")
+
+            if longest_strings:
+                lines.extend([
+                    "",
+                    "### 最长字符串样本",
+                    "",
+                ])
+                for item in longest_strings[:10]:
+                    lines.append(f"- {item}")
+
+            if top_chars:
+                lines.extend([
+                    "",
+                    "### 高频字符分布",
+                    "",
+                    "| 字符 | 计数 |",
+                    "| --- | ---: |",
+                ])
+                for entry in top_chars[:10]:
+                    lines.append(f"| `{entry.get('char')}` | {entry.get('count', 0)} |")
 
         if section_overview:
             lines.extend([
@@ -629,6 +724,28 @@ class MachineLearningPEUI(QtWidgets.QDialog):
             ])
             for entry in dll_usage[:15]:
                 lines.append(f"| {entry.get('dll', '未知')} | {entry.get('count', 0)} |")
+
+        if active_data_dirs:
+            lines.extend([
+                "",
+                "## 数据目录概览",
+                "",
+                "| 数据目录 | 大小 | RVA |",
+                "| --- | ---: | ---: |",
+            ])
+            for entry in active_data_dirs[:15]:
+                lines.append(
+                    f"| {entry.get('name', '未知')} | {entry.get('size', 0)} | {entry.get('virtual_address', 0)} |"
+                )
+
+        if exports:
+            lines.extend([
+                "",
+                "## 导出函数",
+                "",
+            ])
+            for item in exports[:30]:
+                lines.append(f"- {item}")
 
         features = result.get("features", {})
         if isinstance(features, dict):
