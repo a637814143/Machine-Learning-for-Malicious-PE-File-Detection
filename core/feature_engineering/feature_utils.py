@@ -144,8 +144,8 @@ def ByteEntropyHistogram(pe_path: str, window_size: int = 2048) -> np.ndarray:
         window = data[i:i + window_size]
         if not window.size:
             continue
-        # 获取平均字节值
-        argv_byte = sum(window) / len(window)
+        # 获取平均字节值（使用浮点均值避免 uint8 溢出）
+        argv_byte = float(window.mean(dtype=np.float64))
         byte_bin = min(int(argv_byte / 16), 15)
         # 计算信息熵
         counts = np.bincount(window, minlength=256)
