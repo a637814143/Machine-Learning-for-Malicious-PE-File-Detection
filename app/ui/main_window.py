@@ -426,6 +426,12 @@ class MachineLearningPEUI(QtWidgets.QDialog):
         strings = summary.get("strings", {})
         suspicious_hits = summary.get("suspicious_api_hits", [])
         high_entropy_sections = summary.get("high_entropy_sections", [])
+        section_overview = summary.get("section_overview", [])
+        dll_usage = summary.get("dll_usage", [])
+        header_info = summary.get("header", {})
+        risk_info = summary.get("risk_assessment", {})
+        mitigations = risk_info.get("mitigations", [])
+        risk_factors = risk_info.get("factors", [])
 
         avg_string_length = float(strings.get("avlength", 0.0) or 0.0)
         printable_strings = int(strings.get("printables", 0) or 0)
@@ -437,6 +443,9 @@ class MachineLearningPEUI(QtWidgets.QDialog):
         raw_prob = result.get("probability", 0.0)
         threshold = result.get("threshold", 0.0)
         model_path = result.get("model_path", "未知")
+
+        risk_score = float(risk_info.get("score", 0.0) or 0.0)
+        risk_level = risk_info.get("level", "未知")
 
         lines = [
             "# 恶意 PE 文件检测报告",
@@ -453,9 +462,50 @@ class MachineLearningPEUI(QtWidgets.QDialog):
             f"- 原始模型得分: {raw_prob:.6f}",
             f"- 判定阈值: {threshold:.4f}",
             "",
+            "## 模型信心与风险评估",
+            "",
+            f"- 综合风险等级: **{risk_level}**",
+            f"- 综合风险得分: **{risk_score:.1f} / 10**",
+        ]
+
+        margin = abs(raw_prob - threshold)
+        if margin >= 0.25:
+            confidence = "非常高"
+        elif margin >= 0.15:
+            confidence = "较高"
+        elif margin >= 0.07:
+            confidence = "中等"
+        else:
+            confidence = "谨慎"
+        lines.extend([f"- 判定信心: **{confidence}** (与阈值差距 {margin:.4f})", ""])
+
+        if risk_factors:
+            lines.extend([
+                "| 主要恶意信号 | 贡献分值 | 说明 |",
+                "| --- | --- | --- |",
+            ])
+            for factor in risk_factors:
+                weight = float(factor.get("weight", 0.0) or 0.0)
+                title = factor.get("title", "未知")
+                detail = factor.get("detail", "")
+                lines.append(f"| {title} | {weight:.2f} | {detail} |")
+            lines.append("")
+
+        if mitigations:
+            lines.extend([
+                "**潜在缓解因素**",
+                "",
+            ])
+            for item in mitigations:
+                title = item.get("title", "未知")
+                detail = item.get("detail", "")
+                lines.append(f"- {title}: {detail}")
+            lines.append("")
+
+        lines.extend([
             "## 判定依据",
             "",
-        ]
+        ])
 
         headline = reasoning.get("headline")
         if headline:
@@ -479,6 +529,40 @@ class MachineLearningPEUI(QtWidgets.QDialog):
             f"- URL 字符串数量: {summary.get('url_strings', 0)}",
             f"- 注册表字符串数量: {summary.get('registry_strings', 0)}",
         ])
+
+        if header_info:
+            lines.extend([
+                "",
+                "## PE 头部信息",
+                "",
+            ])
+            header_lines = [f"- 机器类型: {header_info.get('machine', '未知') or '未知'}"]
+            timestamp = int(header_info.get("timestamp") or 0)
+            if timestamp > 0:
+                build_time = datetime.utcfromtimestamp(timestamp)
+                header_lines.append(
+                    f"- 编译时间: {build_time.strftime('%Y-%m-%d %H:%M:%S')} (UTC)"
+                )
+            else:
+                header_lines.append("- 编译时间: 未知/异常 (时间戳为 0)")
+            header_lines.extend(
+                [
+                    f"- 子系统: {header_info.get('subsystem', '未知') or '未知'}",
+                    f"- 代码区大小: {header_info.get('sizeof_code', 0)}",
+                    f"- 头部大小: {header_info.get('sizeof_headers', 0)}",
+                ]
+            )
+            dll_chars = header_info.get("dll_characteristics", [])
+            if dll_chars:
+                header_lines.append(
+                    "- DLL 特征: " + ", ".join(str(item) for item in dll_chars[:12])
+                )
+            characteristics = header_info.get("characteristics", [])
+            if characteristics:
+                header_lines.append(
+                    "- COFF 标志: " + ", ".join(str(item) for item in characteristics[:12])
+                )
+            lines.extend(header_lines)
 
         if suspicious_hits:
             lines.extend([
@@ -519,6 +603,47 @@ class MachineLearningPEUI(QtWidgets.QDialog):
                 f"- 平均字符串长度: {avg_string_length:.2f}",
                 f"- MZ 标记次数: {mz_count}",
             ])
+
+        if section_overview:
+            lines.extend([
+                "",
+                "## 节区分布概览",
+                "",
+                "| 节区 | 大小 (字节) | 虚拟大小 | 熵 | 关键特征 |",
+                "| --- | ---: | ---: | ---: | --- |",
+            ])
+            for sec in section_overview:
+                characteristics = ", ".join(sec.get("characteristics", [])[:4])
+                lines.append(
+                    f"| `{sec.get('name')}` | {sec.get('size')} | {sec.get('virtual_size')} | "
+                    f"{sec.get('entropy', 0.0):.2f} | {characteristics or '无'} |"
+                )
+
+        if dll_usage:
+            lines.extend([
+                "",
+                "## 导入 DLL 统计",
+                "",
+                "| DLL | 导入函数数量 |",
+                "| --- | ---: |",
+            ])
+            for entry in dll_usage[:15]:
+                lines.append(f"| {entry.get('dll', '未知')} | {entry.get('count', 0)} |")
+
+        features = result.get("features", {})
+        if isinstance(features, dict):
+            sha256 = features.get("sha256")
+            md5 = features.get("md5")
+            if sha256 or md5:
+                lines.extend([
+                    "",
+                    "## 哈希信息",
+                    "",
+                ])
+                if sha256:
+                    lines.append(f"- SHA-256: `{sha256}`")
+                if md5:
+                    lines.append(f"- MD5: `{md5}`")
 
         lines.append("")
         return "\n".join(lines)

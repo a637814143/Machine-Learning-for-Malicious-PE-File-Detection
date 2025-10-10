@@ -134,6 +134,9 @@ def _analyse_features_for_explanation(features: Dict[str, Any]) -> Dict[str, Any
     section_info = features.get("section") or {}
     sections = list(section_info.get("sections") or [])
     imports = features.get("imports") or {}
+    header = features.get("header") or {}
+    coff_header = dict((header.get("coff") or {}))
+    optional_header = dict((header.get("optional") or {}))
 
     total_imports = 0
     suspicious_hits: List[Dict[str, str]] = []
@@ -172,6 +175,119 @@ def _analyse_features_for_explanation(features: Dict[str, Any]) -> Dict[str, Any
 
     avg_entropy = sum(entropy_values) / len(entropy_values) if entropy_values else 0.0
 
+    # Section overview sorted by physical size (fall back to virtual size).
+    def _section_size(entry: Dict[str, Any]) -> int:
+        try:
+            return int(entry.get("size", 0) or 0)
+        except Exception:
+            try:
+                return int(entry.get("virtual_size", 0) or 0)
+            except Exception:
+                return 0
+
+    sections_sorted = sorted(sections, key=_section_size, reverse=True)
+    section_overview: List[Dict[str, Any]] = []
+    for sec in sections_sorted[:10]:
+        section_overview.append(
+            {
+                "name": str(sec.get("name", "")).strip() or "<unnamed>",
+                "size": int(sec.get("size", 0) or 0),
+                "virtual_size": int(sec.get("virtual_size", 0) or 0),
+                "entropy": float(sec.get("entropy", 0.0) or 0.0),
+                "characteristics": list(sec.get("characteristics", []) or []),
+            }
+        )
+
+    # Import statistics grouped per DLL for richer explanations.
+    dll_usage: List[Dict[str, Any]] = []
+    for dll, funcs in imports.items():
+        dll_usage.append({
+            "dll": dll,
+            "count": len(funcs or []),
+        })
+    dll_usage.sort(key=lambda item: item["count"], reverse=True)
+
+    risk_score = 0.0
+    risk_factors: List[Dict[str, Any]] = []
+    mitigations: List[Dict[str, Any]] = []
+
+    def _add_risk(condition: bool, weight: float, title: str, detail: str) -> None:
+        nonlocal risk_score
+        if condition and weight > 0:
+            risk_score += weight
+            risk_factors.append({"title": title, "weight": weight, "detail": detail})
+
+    def _add_mitigation(condition: bool, title: str, detail: str) -> None:
+        if condition:
+            mitigations.append({"title": title, "detail": detail})
+
+    suspicious_count = len(suspicious_hits)
+    high_entropy_count = len(high_entropy_sections)
+    url_strings = summary_url_strings = int(strings.get("urls", 0) or 0)
+    registry_strings = summary_registry_strings = int(strings.get("registry", 0) or 0)
+    printable_strings = int(strings.get("printables", 0) or 0)
+
+    _add_risk(
+        suspicious_count > 0,
+        min(3.0, 1.2 + 0.35 * min(suspicious_count, 8)),
+        "高风险 API 调用",
+        f"命中 {suspicious_count} 个高风险 API，可能具备注入、下载或加密能力。",
+    )
+    _add_risk(
+        high_entropy_count > 0,
+        min(2.5, 1.0 + 0.3 * min(high_entropy_count, 6)),
+        "节区熵值异常",
+        f"检测到 {high_entropy_count} 个高熵节区，疑似包含压缩或加密载荷。",
+    )
+    _add_risk(
+        not bool(general.get("has_signature")),
+        1.2,
+        "缺少数字签名",
+        "文件未发现 Authenticode 签名，可信度下降。",
+    )
+    _add_risk(
+        url_strings >= 25,
+        1.4 if url_strings >= 100 else 0.8,
+        "可疑网络通信字符串",
+        f"字符串中包含 {url_strings} 个 URL 片段，可能用于联络 C2 或下载载荷。",
+    )
+    _add_risk(
+        registry_strings >= 5,
+        1.1 if registry_strings >= 20 else 0.6,
+        "注册表操作痕迹",
+        f"检测到 {registry_strings} 个注册表路径字符串，可能试图修改系统配置。",
+    )
+    _add_risk(
+        general.get("imports", 0) and general.get("imports", 0) > 200,
+        0.8,
+        "导入函数数量异常",
+        f"导入函数总数达到 {general.get('imports')}，远高于常规应用平均水平。",
+    )
+    _add_risk(
+        general.get("exports", 0) == 0 and general.get("imports", 0) > 0 and printable_strings < 50,
+        0.5,
+        "导出缺失但包含大量代码",
+        "文件没有导出函数却导入大量 API，常见于隐蔽的执行主体。",
+    )
+
+    timestamp = int(coff_header.get("timestamp", 0) or 0)
+    if timestamp <= 0:
+        _add_risk(True, 0.4, "编译时间异常", "PE 头部时间戳为 0，可能被篡改以规避检测。")
+
+    # Positive indicators.
+    _add_mitigation(bool(general.get("has_signature")), "检测到数字签名", "Authenticode 签名可提升可信度，但仍需验证证书链。")
+    _add_mitigation(bool(benign_hits), "常见系统 API", f"大量导入 {len(benign_hits)} 个 GUI/系统相关 API，符合常见应用行为。")
+    _add_mitigation(not high_entropy_sections, "节区熵值平稳", "未检测到高熵节区，代码段分布均衡。")
+    _add_mitigation(bool(general.get("has_tls")), "存在 TLS 数据目录", "包含 TLS 初始化数据，常见于正规受保护程序。")
+
+    risk_score = min(10.0, round(risk_score, 2))
+    if risk_score >= 6.0:
+        risk_level = "高风险"
+    elif risk_score >= 3.0:
+        risk_level = "中等风险"
+    else:
+        risk_level = "低风险"
+
     summary = {
         "general": general,
         "strings": strings,
@@ -180,11 +296,28 @@ def _analyse_features_for_explanation(features: Dict[str, Any]) -> Dict[str, Any
         "benign_api_hits": benign_hits,
         "high_entropy_sections": high_entropy_sections,
         "average_entropy": avg_entropy,
-        "url_strings": int(strings.get("urls", 0) or 0),
-        "registry_strings": int(strings.get("registry", 0) or 0),
+        "url_strings": summary_url_strings,
+        "registry_strings": summary_registry_strings,
         "path_strings": int(strings.get("paths", 0) or 0),
         "printable_strings": int(strings.get("printables", 0) or 0),
         "string_entropy": float(strings.get("entropy", 0.0) or 0.0),
+        "section_overview": section_overview,
+        "dll_usage": dll_usage,
+        "header": {
+            "timestamp": timestamp,
+            "machine": coff_header.get("machine", ""),
+            "characteristics": list(coff_header.get("characteristics", []) or []),
+            "subsystem": optional_header.get("subsystem", ""),
+            "dll_characteristics": list(optional_header.get("dll_characteristics", []) or []),
+            "sizeof_code": int(optional_header.get("sizeof_code", 0) or 0),
+            "sizeof_headers": int(optional_header.get("sizeof_headers", 0) or 0),
+        },
+        "risk_assessment": {
+            "score": risk_score,
+            "level": risk_level,
+            "factors": risk_factors,
+            "mitigations": mitigations,
+        },
     }
 
     return summary
@@ -197,6 +330,9 @@ def _build_reasoning(verdict: str, summary: Dict[str, Any]) -> Dict[str, Any]:
     suspicious_hits = summary.get("suspicious_api_hits", [])
     benign_hits = summary.get("benign_api_hits", [])
     high_entropy_sections = summary.get("high_entropy_sections", [])
+    risk_info = summary.get("risk_assessment", {})
+    risk_level = risk_info.get("level")
+    risk_score = risk_info.get("score")
 
     has_signature = bool(general.get("has_signature"))
     has_tls = bool(general.get("has_tls"))
@@ -204,6 +340,8 @@ def _build_reasoning(verdict: str, summary: Dict[str, Any]) -> Dict[str, Any]:
     registry_strings = summary.get("registry_strings", 0)
 
     if verdict == "恶意":
+        if risk_level:
+            bullets.append(f"综合风险评估为 {risk_level} (得分 {risk_score:.1f}/10)。")
         if suspicious_hits:
             highlighted = ", ".join(hit["api"] for hit in suspicious_hits[:5])
             bullets.append(f"导入了高风险 API：{highlighted}。")
@@ -222,6 +360,8 @@ def _build_reasoning(verdict: str, summary: Dict[str, Any]) -> Dict[str, Any]:
             bullets.append("模型判定得分显著高于阈值，整体特征与恶意样本高度相似。")
         headline = "模型认为该文件可能为恶意样本。"
     else:
+        if risk_level:
+            bullets.append(f"综合风险评估为 {risk_level} (得分 {risk_score:.1f}/10)。")
         if has_signature:
             bullets.append("文件包含数字签名，提升可信度。")
         if total_imports and total_imports < 50:
