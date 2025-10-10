@@ -1,11 +1,15 @@
 # app/ui/main_window.py
 
+from datetime import datetime
+from pathlib import Path
+
 from PyQt5 import QtCore, QtWidgets
 from PyQt5.QtWidgets import QFileDialog
 from .progress_dialog import Worker
 from .report_view import ReportManager
 from core.utils.logger import set_log
 from scripts.FILE_NAME import GET_TIME
+from scripts.D import predict_file_with_features
 
 
 class MachineLearningPEUI(QtWidgets.QDialog):
@@ -358,7 +362,53 @@ class MachineLearningPEUI(QtWidgets.QDialog):
 
     def download_report(self):
         """下载报告"""
-        self._append_result_text("下载报告：占位（未实现）")
+        file_path = self.inputLineEdit.text().strip()
+        if not file_path:
+            self._append_result_text("请先选择需要生成报告的 PE 文件。")
+            return
+
+        target = Path(file_path)
+        if not target.exists() or not target.is_file():
+            self._append_result_text("所选路径不是有效的文件，请重新选择。")
+            return
+
+        self._append_result_text(f"正在分析 {target.name} ……")
+
+        try:
+            result = predict_file_with_features(str(target))
+        except FileNotFoundError as exc:
+            self._append_result_text(str(exc))
+            return
+        except ImportError as exc:
+            self._append_result_text(f"缺少依赖: {exc}")
+            return
+        except Exception as exc:  # pragma: no cover - UI runtime feedback
+            self._append_result_text(f"生成报告失败: {exc}")
+            return
+
+        verdict = result.get("verdict", "未知")
+        display_prob = result.get("display_probability", 0.0)
+        raw_prob = result.get("probability", 0.0)
+        threshold = result.get("threshold")
+
+        summary_line = (
+            f"模型判定: {verdict} (恶意概率 {display_prob:.4f}%"
+            f"，原始得分 {raw_prob:.6f})"
+        )
+        if threshold is not None:
+            summary_line += f"，判定阈值 {threshold:.4f}"
+        self._append_result_text(summary_line)
+
+        markdown_content = self._build_markdown_report(Path(result.get("file_path", target)), result)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        report_name = f"{target.stem}_report_{timestamp}.md"
+        report_path = self.report_manager.create_markdown_report(markdown_content, report_name=report_name)
+
+        if report_path:
+            self._append_result_text(f"报告已生成: {report_path}")
+            self.report_manager.log_message(f"生成报告 {report_path}")
+        else:
+            self._append_result_text("报告生成失败，请检查日志。")
 
     def view_logs(self):
         """查看日志"""
@@ -367,3 +417,108 @@ class MachineLearningPEUI(QtWidgets.QDialog):
     def clear_result_text(self):
         """清空文件信息展示区"""
         self.resultTextBrowser.clear()
+
+    def _build_markdown_report(self, file_path: Path, result: dict) -> str:
+        """根据预测结果构建 Markdown 报告内容。"""
+        summary = result.get("summary", {})
+        reasoning = result.get("reasoning", {})
+        general = summary.get("general", {})
+        strings = summary.get("strings", {})
+        suspicious_hits = summary.get("suspicious_api_hits", [])
+        high_entropy_sections = summary.get("high_entropy_sections", [])
+
+        avg_string_length = float(strings.get("avlength", 0.0) or 0.0)
+        printable_strings = int(strings.get("printables", 0) or 0)
+        mz_count = int(strings.get("MZ", 0) or 0)
+
+        generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        verdict = result.get("verdict", "未知")
+        display_prob = result.get("display_probability", 0.0)
+        raw_prob = result.get("probability", 0.0)
+        threshold = result.get("threshold", 0.0)
+        model_path = result.get("model_path", "未知")
+
+        lines = [
+            "# 恶意 PE 文件检测报告",
+            "",
+            f"- **生成时间**: {generated_at}",
+            f"- **文件名**: `{file_path.name}`",
+            f"- **文件路径**: `{file_path}`",
+            f"- **模型文件**: `{model_path}`",
+            "",
+            "## 预测结果",
+            "",
+            f"- 模型判定: **{verdict}**",
+            f"- 恶意概率 (展示): **{display_prob:.4f}%**",
+            f"- 原始模型得分: {raw_prob:.6f}",
+            f"- 判定阈值: {threshold:.4f}",
+            "",
+            "## 判定依据",
+            "",
+        ]
+
+        headline = reasoning.get("headline")
+        if headline:
+            lines.append(headline)
+
+        bullets = reasoning.get("bullets", [])
+        if bullets:
+            lines.extend(f"- {item}" for item in bullets)
+        else:
+            lines.append("- 模型未提供额外判定依据。")
+
+        lines.extend([
+            "",
+            "## 文件特征概览",
+            "",
+            f"- 文件大小: {general.get('size', '未知')} 字节",
+            f"- 虚拟大小 (SizeOfImage): {general.get('vsize', '未知')}",
+            f"- 是否包含数字签名: {'是' if general.get('has_signature') else '否'}",
+            f"- 导入函数数量: {summary.get('total_imports', 0)}",
+            f"- 字符串熵: {summary.get('string_entropy', 0.0):.2f}",
+            f"- URL 字符串数量: {summary.get('url_strings', 0)}",
+            f"- 注册表字符串数量: {summary.get('registry_strings', 0)}",
+        ])
+
+        if suspicious_hits:
+            lines.extend([
+                "",
+                "## 高风险 API",
+                "",
+            ])
+            for hit in suspicious_hits[:10]:
+                lines.append(f"- `{hit['api']}`: {hit['hint']}")
+
+        if high_entropy_sections:
+            lines.extend([
+                "",
+                "## 高熵节区",
+                "",
+            ])
+            for sec in high_entropy_sections[:10]:
+                lines.append(
+                    f"- `{sec['name']}` — 大小 {sec['size']} 字节，熵 {sec['entropy']:.2f}"
+                )
+
+        benign_hits = summary.get("benign_api_hits", [])
+        if benign_hits:
+            lines.extend([
+                "",
+                "## 常见系统 API",
+                "",
+            ])
+            for api in benign_hits[:10]:
+                lines.append(f"- `{api}`")
+
+        if strings:
+            lines.extend([
+                "",
+                "## 字符串统计",
+                "",
+                f"- 可打印字符串数量: {printable_strings}",
+                f"- 平均字符串长度: {avg_string_length:.2f}",
+                f"- MZ 标记次数: {mz_count}",
+            ])
+
+        lines.append("")
+        return "\n".join(lines)
