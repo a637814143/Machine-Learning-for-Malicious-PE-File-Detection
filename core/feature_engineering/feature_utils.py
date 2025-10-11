@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import hashlib
+import heapq
 from typing import Iterable, Dict, List, Any
 from pathlib import Path
 import re
@@ -40,6 +41,40 @@ RE_REG = re.compile(
     flags=re.IGNORECASE
 )
 RE_MZ = re.compile(rb'MZ')
+RE_IP = re.compile(
+    rb'(?:'
+    rb'(?:25[0-5]|2[0-4][0-9]|[01]?\d?\d)\.'
+    rb'(?:25[0-5]|2[0-4][0-9]|[01]?\d?\d)\.'
+    rb'(?:25[0-5]|2[0-4][0-9]|[01]?\d?\d)\.'
+    rb'(?:25[0-5]|2[0-4][0-9]|[01]?\d?\d)'
+    rb')'
+)
+SUSPICIOUS_STRING_KEYWORDS = [
+    "powershell",
+    "cmd.exe",
+    "rundll32",
+    "regsvr32",
+    "sc ",
+    "schtasks",
+    "wmic",
+    "mshta",
+    "wscript",
+    "cscript",
+    "bitsadmin",
+    "invoke-webrequest",
+    "-enc",
+    "-nop",
+    "downloadstring",
+    "shellcode",
+    "mimikatz",
+]
+
+MAX_URL_SAMPLES = 12
+MAX_PATH_SAMPLES = 12
+MAX_REG_SAMPLES = 12
+MAX_IP_SAMPLES = 12
+MAX_SUSPICIOUS_SAMPLES = 12
+MAX_LONGEST_STRINGS = 10
 
 # 表信息
 _DATA_DIR_NAMES = [
@@ -144,8 +179,8 @@ def ByteEntropyHistogram(pe_path: str, window_size: int = 2048) -> np.ndarray:
         window = data[i:i + window_size]
         if not window.size:
             continue
-        # 获取平均字节值
-        argv_byte = sum(window) / len(window)
+        # 获取平均字节值（使用浮点均值避免 uint8 溢出）
+        argv_byte = float(window.mean(dtype=np.float64))
         byte_bin = min(int(argv_byte / 16), 15)
         # 计算信息熵
         counts = np.bincount(window, minlength=256)
@@ -159,11 +194,7 @@ def ByteEntropyHistogram(pe_path: str, window_size: int = 2048) -> np.ndarray:
 
 
 def Strings(file_path) -> Dict:
-    """
-    字符串信息
-    :param file_path:
-    :return:
-    """
+    """提取文件中的可打印字符串统计与样本。"""
 
     def _entropy_from_counts(counts: np.ndarray) -> float:
         """Shannon 熵（基于可打印字符分布）。"""
@@ -173,28 +204,75 @@ def Strings(file_path) -> Dict:
         p = counts[counts > 0] / total
         return float(-(p * np.log2(p)).sum())
 
-    # 统计容器
+    def _decode(sample: bytes) -> str:
+        text = sample.decode("utf-8", "ignore").strip()
+        if text:
+            return text
+        return sample.decode("latin-1", "ignore").strip()
+
     printable_counts = np.zeros(PRINTABLE_RANGE, dtype=np.int64)
     numstrings = 0
     total_len = 0
     urls = paths = registry = mz = 0
 
+    sample_urls: List[str] = []
+    sample_paths: List[str] = []
+    sample_registry: List[str] = []
+    sample_ips: List[str] = []
+    suspicious_samples: List[str] = []
+    longest_heap: List[tuple[int, str]] = []
+
     p = Path(file_path)
+    file_size = p.stat().st_size if p.exists() else 0
+
     with open(p, "rb") as f:
         mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
         data = mm[:]
         mz = len(RE_MZ.findall(data))
-        for m in RE_PRINTABLE.finditer(data):
-            s = m.group(0)
-            L = len(s)
-            numstrings += 1
-            total_len += L
 
-            arr = np.frombuffer(s, dtype=np.uint8)
+        for m in RE_PRINTABLE.finditer(data):
+            segment = m.group(0)
+            length = len(segment)
+            numstrings += 1
+            total_len += length
+
+            arr = np.frombuffer(segment, dtype=np.uint8)
             mask = (arr >= PRINTABLE_MIN) & (arr <= PRINTABLE_MAX)
             if mask.any():
                 vals = arr[mask] - PRINTABLE_MIN
                 printable_counts += np.bincount(vals, minlength=PRINTABLE_RANGE)
+
+            text = _decode(segment)
+            if not text:
+                continue
+
+            lower_text = text.lower()
+            if any(keyword in lower_text for keyword in SUSPICIOUS_STRING_KEYWORDS):
+                if text not in suspicious_samples and len(suspicious_samples) < MAX_SUSPICIOUS_SAMPLES:
+                    suspicious_samples.append(text)
+
+            if len(longest_heap) < MAX_LONGEST_STRINGS:
+                heapq.heappush(longest_heap, (length, text))
+            else:
+                if length > longest_heap[0][0]:
+                    heapq.heapreplace(longest_heap, (length, text))
+
+        seen: set[str] = set()
+        for finder, store, limit in [
+            (RE_URL.finditer, sample_urls, MAX_URL_SAMPLES),
+            (RE_WIN_PATH.finditer, sample_paths, MAX_PATH_SAMPLES),
+            (RE_REG.finditer, sample_registry, MAX_REG_SAMPLES),
+            (RE_IP.finditer, sample_ips, MAX_IP_SAMPLES),
+        ]:
+            seen.clear()
+            for match in finder(data):
+                candidate = _decode(match.group(0))
+                if not candidate or candidate in seen:
+                    continue
+                store.append(candidate)
+                seen.add(candidate)
+                if len(store) >= limit:
+                    break
 
         urls = len(RE_URL.findall(data))
         paths = len(RE_WIN_PATH.findall(data))
@@ -205,6 +283,19 @@ def Strings(file_path) -> Dict:
     printables = int(printable_counts.sum())
     avlength = float(total_len / numstrings) if numstrings else 0.0
     entropy = _entropy_from_counts(printable_counts)
+    strings_per_kb = float(numstrings / (file_size / 1024.0)) if file_size else 0.0
+
+    top_chars: List[Dict[str, Any]] = []
+    if printable_counts.sum() > 0:
+        top_indices = np.argsort(printable_counts)[::-1][:10]
+        for idx in top_indices:
+            count = int(printable_counts[idx])
+            if count == 0:
+                continue
+            ch = chr(idx + PRINTABLE_MIN)
+            top_chars.append({"char": ch, "count": count})
+
+    longest_strings = [text for _, text in sorted(longest_heap, key=lambda item: item[0], reverse=True)]
 
     return {
         "numstrings": int(numstrings),
@@ -216,6 +307,14 @@ def Strings(file_path) -> Dict:
         "urls": int(urls),
         "registry": int(registry),
         "MZ": int(mz),
+        "strings_per_kb": strings_per_kb,
+        "sample_urls": sample_urls,
+        "sample_paths": sample_paths,
+        "sample_registry": sample_registry,
+        "sample_ips": sample_ips,
+        "suspicious_strings": suspicious_samples,
+        "longest_strings": longest_strings,
+        "top_printable_chars": top_chars,
     }
 
 

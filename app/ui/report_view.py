@@ -1,11 +1,13 @@
 # app/ui/report_view.py
 import os
+import time
 from pathlib import Path
 from typing import Optional, List, Dict
 
+
 class ReportManager:
     """报告和日志管理器"""
-    
+
     def __init__(self, reports_dir: str = "reports", logs_dir: str = "logs"):
         """
         初始化报告管理器
@@ -14,11 +16,11 @@ class ReportManager:
         """
         self.reports_dir = Path(reports_dir)
         self.logs_dir = Path(logs_dir)
-        
+
         # 确保目录存在
         self.reports_dir.mkdir(exist_ok=True)
         self.logs_dir.mkdir(exist_ok=True)
-    
+
     def download_report(self, report_name: str = None) -> Optional[str]:
         """
         下载报告
@@ -28,24 +30,28 @@ class ReportManager:
         try:
             if report_name is None:
                 # 获取最新的报告文件
-                report_files = list(self.reports_dir.glob("*.pdf")) + list(self.reports_dir.glob("*.html"))
+                report_files = (
+                        list(self.reports_dir.glob("*.pdf"))
+                        + list(self.reports_dir.glob("*.html"))
+                        + list(self.reports_dir.glob("*.md"))
+                )
                 if not report_files:
                     return None
-                
+
                 # 按修改时间排序，获取最新的
                 latest_report = max(report_files, key=lambda x: x.stat().st_mtime)
                 report_name = latest_report.name
-            
+
             report_path = self.reports_dir / report_name
             if report_path.exists():
                 return str(report_path)
             else:
                 return None
-                
+
         except Exception as e:
             print(f"下载报告失败: {e}")
             return None
-    
+
     def view_logs(self, log_name: str = None, max_lines: int = 100) -> Optional[List[str]]:
         """
         查看日志
@@ -59,11 +65,11 @@ class ReportManager:
                 log_files = list(self.logs_dir.glob("*.log")) + list(self.logs_dir.glob("*.txt"))
                 if not log_files:
                     return None
-                
+
                 # 按修改时间排序，获取最新的
                 latest_log = max(log_files, key=lambda x: x.stat().st_mtime)
                 log_name = latest_log.name
-            
+
             log_path = self.logs_dir / log_name
             if log_path.exists():
                 with open(log_path, 'r', encoding='utf-8') as f:
@@ -72,11 +78,11 @@ class ReportManager:
                     return lines[-max_lines:] if len(lines) > max_lines else lines
             else:
                 return None
-                
+
         except Exception as e:
             print(f"查看日志失败: {e}")
             return None
-    
+
     def get_available_reports(self) -> List[Dict[str, str]]:
         """
         获取可用的报告列表
@@ -93,15 +99,15 @@ class ReportManager:
                         "modified": time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(stat.st_mtime)),
                         "path": str(report_file)
                     })
-            
+
             # 按修改时间排序
             reports.sort(key=lambda x: x["modified"], reverse=True)
             return reports
-            
+
         except Exception as e:
             print(f"获取报告列表失败: {e}")
             return []
-    
+
     def get_available_logs(self) -> List[Dict[str, str]]:
         """
         获取可用的日志列表
@@ -118,15 +124,15 @@ class ReportManager:
                         "modified": time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(stat.st_mtime)),
                         "path": str(log_file)
                     })
-            
+
             # 按修改时间排序
             logs.sort(key=lambda x: x["modified"], reverse=True)
             return logs
-            
+
         except Exception as e:
             print(f"获取日志列表失败: {e}")
             return []
-    
+
     def create_report(self, content: str, report_name: str = None) -> Optional[str]:
         """
         创建报告
@@ -139,9 +145,9 @@ class ReportManager:
                 from datetime import datetime
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 report_name = f"report_{timestamp}.html"
-            
+
             report_path = self.reports_dir / report_name
-            
+
             # 创建HTML格式的报告
             html_content = f"""
 <!DOCTYPE html>
@@ -170,16 +176,34 @@ class ReportManager:
 </body>
 </html>
             """
-            
+
             with open(report_path, 'w', encoding='utf-8') as f:
                 f.write(html_content)
-            
+
             return str(report_path)
-            
+
         except Exception as e:
             print(f"创建报告失败: {e}")
             return None
-    
+
+    def create_markdown_report(self, content: str, report_name: str = None) -> Optional[str]:
+        """创建 Markdown 报告文件。"""
+        try:
+            from datetime import datetime
+
+            if report_name is None:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                report_name = f"report_{timestamp}.md"
+
+            report_path = self.reports_dir / report_name
+            with open(report_path, "w", encoding="utf-8") as f:
+                f.write(content)
+
+            return str(report_path)
+        except Exception as e:
+            print(f"创建Markdown报告失败: {e}")
+            return None
+
     def log_message(self, message: str, log_name: str = "app.log") -> bool:
         """
         记录日志消息
@@ -189,19 +213,18 @@ class ReportManager:
         """
         try:
             log_path = self.logs_dir / log_name
-            
+
             from datetime import datetime
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             log_entry = f"[{timestamp}] {message}\n"
-            
+
             with open(log_path, 'a', encoding='utf-8') as f:
                 f.write(log_entry)
-            
+
             return True
-            
+
         except Exception as e:
             print(f"记录日志失败: {e}")
             return False
 
-# 导入time模块用于时间处理
-import time
+
