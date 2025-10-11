@@ -28,7 +28,11 @@ class ReportManager:
         try:
             if report_name is None:
                 # 获取最新的报告文件
-                report_files = list(self.reports_dir.glob("*.pdf")) + list(self.reports_dir.glob("*.html"))
+                report_files = (
+                    list(self.reports_dir.glob("*.pdf"))
+                    + list(self.reports_dir.glob("*.html"))
+                    + list(self.reports_dir.glob("*.md"))
+                )
                 if not report_files:
                     return None
                 
@@ -175,9 +179,27 @@ class ReportManager:
                 f.write(html_content)
             
             return str(report_path)
-            
+
         except Exception as e:
             print(f"创建报告失败: {e}")
+            return None
+
+    def create_markdown_report(self, content: str, report_name: str = None) -> Optional[str]:
+        """创建 Markdown 报告文件。"""
+        try:
+            from datetime import datetime
+
+            if report_name is None:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                report_name = f"report_{timestamp}.md"
+
+            report_path = self.reports_dir / report_name
+            with open(report_path, "w", encoding="utf-8") as f:
+                f.write(content)
+
+            return str(report_path)
+        except Exception as e:
+            print(f"创建Markdown报告失败: {e}")
             return None
     
     def log_message(self, message: str, log_name: str = "app.log") -> bool:
