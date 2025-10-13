@@ -8,6 +8,8 @@ from PyQt5 import QtCore, QtWidgets
 from PyQt5.QtWidgets import QFileDialog
 from .progress_dialog import Worker
 from .report_view import ReportManager
+from .benign_resources_dialog import BenignResourceDialog
+from .sandbox_dialog import SandboxDialog
 from core.utils.logger import set_log
 from scripts.FILE_NAME import GET_TIME
 from scripts.D import predict_file_with_features
@@ -20,6 +22,8 @@ class MachineLearningPEUI(QtWidgets.QDialog):
         super().__init__()
         self.workers = {}
         self.report_manager = ReportManager()
+        self._benign_dialog = None
+        self._sandbox_dialog = None
         self.setupUi()
 
     def setupUi(self):
@@ -315,6 +319,14 @@ class MachineLearningPEUI(QtWidgets.QDialog):
 
     def start_task(self, task_name: str):
         """启动任务"""
+        if task_name == "获取良性":
+            self.open_benign_resources()
+            return
+
+        if task_name == "沙箱检测":
+            self.open_sandbox_helper()
+            return
+
         params = self._get_params()
 
         # 检查必要参数
@@ -349,6 +361,28 @@ class MachineLearningPEUI(QtWidgets.QDialog):
         )
         self._append_result_text(f"启动任务: {task_name} {thread_info}")
         worker.start()
+
+    def open_benign_resources(self):
+        """打开良性资源窗口。"""
+        if self._benign_dialog is None:
+            self._benign_dialog = BenignResourceDialog(self)
+        self._benign_dialog.show()
+        self._benign_dialog.raise_()
+        self._benign_dialog.activateWindow()
+        if "获取良性" in self.progressBars:
+            self.progressBars["获取良性"].setValue(100)
+        self._append_result_text("已打开良性样本资源窗口。")
+
+    def open_sandbox_helper(self):
+        """打开沙箱检测指导窗口。"""
+        if self._sandbox_dialog is None:
+            self._sandbox_dialog = SandboxDialog(self)
+        self._sandbox_dialog.show()
+        self._sandbox_dialog.raise_()
+        self._sandbox_dialog.activateWindow()
+        if "沙箱检测" in self.progressBars:
+            self.progressBars["沙箱检测"].setValue(100)
+        self._append_result_text("已打开沙箱检测指南窗口。")
 
     def _append_result_text_or_html(self, txt: str):
         """如果是HTML就渲染，否则追加文本"""
