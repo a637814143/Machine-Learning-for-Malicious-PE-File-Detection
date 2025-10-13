@@ -1,23 +1,29 @@
 # app/ui/report_view.py
 import os
 from pathlib import Path
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Union
+
+from scripts.ROOT_PATH import ROOT
 
 class ReportManager:
     """报告和日志管理器"""
     
-    def __init__(self, reports_dir: str = "reports", logs_dir: str = "logs"):
+    def __init__(
+        self,
+        reports_dir: Optional[Union[str, os.PathLike]] = None,
+        logs_dir: Optional[Union[str, os.PathLike]] = None,
+    ):
         """
         初始化报告管理器
         :param reports_dir: 报告目录
         :param logs_dir: 日志目录
         """
-        self.reports_dir = Path(reports_dir)
-        self.logs_dir = Path(logs_dir)
-        
+        self.reports_dir = Path(reports_dir) if reports_dir else ROOT / "docs"
+        self.logs_dir = Path(logs_dir) if logs_dir else ROOT / "logs"
+
         # 确保目录存在
-        self.reports_dir.mkdir(exist_ok=True)
-        self.logs_dir.mkdir(exist_ok=True)
+        self.reports_dir.mkdir(parents=True, exist_ok=True)
+        self.logs_dir.mkdir(parents=True, exist_ok=True)
     
     def download_report(self, report_name: str = None) -> Optional[str]:
         """
