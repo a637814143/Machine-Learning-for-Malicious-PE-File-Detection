@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <title>恶意软件检测服务</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <h1>恶意软件检测与报告平台</h1>
+        <p>上传Windows可执行文件，系统将自动分析是否存在恶意风险并生成报告。</p>
+      </header>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <ul class="messages">
+            {% for category, message in messages %}
+              <li class="message {{ category }}">{{ message }}</li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+      {% endwith %}
+
+      <form method="post" enctype="multipart/form-data" class="upload-form">
+        <label for="file">选择要检测的文件：</label>
+        <input type="file" name="file" id="file" required>
+        <button type="submit">开始检测</button>
+      </form>
+
+      <section class="help">
+        <h2>使用说明</h2>
+        <ol>
+          <li>点击“选择要检测的文件”并挑选本地的 <code>.exe</code>、<code>.dll</code> 等PE文件。</li>
+          <li>点击“开始检测”，等待分析完成。</li>
+          <li>系统将展示检测结果，并可下载JSON格式的详细报告。</li>
+        </ol>
+        <p class="note">提示：如需接入真实模型，请将模型文件放置在 <code>{{ model_path }}</code>，并在 <code>ModelWrapper</code> 中实现实际推理逻辑。</p>
+      </section>
+    </div>
+  </body>
+</html>

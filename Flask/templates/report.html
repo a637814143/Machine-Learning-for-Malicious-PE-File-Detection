@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <title>检测报告 - {{ report.filename }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <h1>检测报告</h1>
+        <p>文件 <strong>{{ report.filename }}</strong> 的分析结果如下。</p>
+      </header>
+
+      <section class="report">
+        <dl>
+          <div><dt>SHA256</dt><dd><code>{{ report.sha256 }}</code></dd></div>
+          <div><dt>文件大小</dt><dd>{{ report.size_kb }} KB</dd></div>
+          <div><dt>风险评分</dt><dd>{{ report.detection_score }}</dd></div>
+          <div><dt>判定</dt><dd class="label">{{ report.label }}</dd></div>
+          <div><dt>生成时间</dt><dd>{{ report.generated_at }}</dd></div>
+          <div><dt>模型路径</dt><dd><code>{{ report.model_path }}</code></dd></div>
+          <div><dt>模型是否已加载</dt><dd>{{ '是' if report.model_loaded else '否' }}</dd></div>
+          {% if report.stored_file %}
+          <div><dt>文件存储位置</dt><dd><code>{{ report.stored_file }}</code></dd></div>
+          {% endif %}
+        </dl>
+      </section>
+
+      <div class="actions">
+        <a class="button" href="{{ url_for('download_report', report_name=report_file) }}">下载JSON报告</a>
+        <a class="button secondary" href="{{ url_for('index') }}">继续检测其他文件</a>
+      </div>
+    </div>
+  </body>
+</html>
