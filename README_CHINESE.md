@@ -113,6 +113,17 @@ pip install -r requirements.txt
 python -m Flask.app --host 0.0.0.0 --port 8000
 ```
 
+若在生产环境中通过进程管理器（systemd、Supervisor 等）或云平台启动，亦可直接指定提供的 WSGI 入口。该模块暴露顶层
+`application` 对象，与命令行模式保持一致，可方便地交给 **uWSGI**、**Gunicorn** 等服务器托管：
+
+```bash
+# 示例：uWSGI（示意使用 HTTP 协议，实际部署可改为 socket 等模式）
+uwsgi --http :8000 --wsgi-file Flask/wsgi.py --callable application
+
+# 示例：Gunicorn
+gunicorn Flask.wsgi:application --bind 0.0.0.0:8000
+```
+
 启动后可访问的 HTTP 接口如下：
 
 | 方法  | 路径        | 说明                     |

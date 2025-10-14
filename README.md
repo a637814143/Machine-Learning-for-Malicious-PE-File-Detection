@@ -110,6 +110,18 @@ Run the application module directly. Command line arguments let you customise th
 python -m Flask.app --host 0.0.0.0 --port 8000
 ```
 
+For production deployments behind a process manager (systemd, Supervisor, etc.) you can also point your WSGI server at the
+bundled entry point. The module exposes a top-level `application` object that mirrors the CLI configuration, making it
+straightforward to run with tools such as **uWSGI** or **Gunicorn**:
+
+```bash
+# Example uWSGI launch (HTTP for simplicity — adjust parameters to suit your setup)
+uwsgi --http :8000 --wsgi-file Flask/wsgi.py --callable application
+
+# Example Gunicorn launch
+gunicorn Flask.wsgi:application --bind 0.0.0.0:8000
+```
+
 Once started the service exposes the following HTTP endpoints:
 
 | Method | Path       | Description                               |
