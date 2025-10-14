@@ -16,8 +16,10 @@ import math
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Iterable, List, Tuple
 
+import lightgbm as lgb
+import numpy as np
 from flask import (
     Flask,
     Response,
@@ -30,6 +32,8 @@ from flask import (
 )
 from werkzeug.utils import secure_filename
 
+from ml_pipeline import extract_features, vectorize_features
+
 # Directory setup -----------------------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parent
 UPLOAD_DIR = BASE_DIR / "uploads"
@@ -37,11 +41,15 @@ REPORT_DIR = BASE_DIR / "reports"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 REPORT_DIR.mkdir(parents=True, exist_ok=True)
 
-# ``MODEL_PATH`` indicates where the trained model should be placed. Replace the
-# placeholder path with the real model artifact when integrating with your
-# production model.
-MODEL_PATH = BASE_DIR / "model" / "malicious_pe_model.pkl"
-MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
+# ``MODEL_PATH`` points to the LightGBM model exported by the training
+# pipeline.  By default it expects the project's ``model.txt`` located at the
+# repository root, but this can be overridden using the ``MALWARE_MODEL``
+# environment variable.
+_MODEL_ENV = os.environ.get("MALWARE_MODEL")
+if _MODEL_ENV:
+    MODEL_PATH = Path(_MODEL_ENV).expanduser()
+else:
+    MODEL_PATH = BASE_DIR.parent / "model.txt"
 
 ALLOWED_EXTENSIONS = {"exe", "dll", "sys", "drv", "ocx"}
 MAX_CONTENT_LENGTH = 25 * 1024 * 1024  # 25 MiB
@@ -75,8 +83,7 @@ def create_app() -> Flask:
                 timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
                 upload_path = UPLOAD_DIR / f"{timestamp}_{safe_name}"
                 upload_path.write_bytes(payload)
-                report = model.analyse_payload(file.filename, payload)
-                report["stored_file"] = str(upload_path)
+                report = model.analyse_file(file.filename, upload_path)
             except ValueError as exc:
                 flash(str(exc), "danger")
                 return redirect(url_for("index"))
@@ -102,92 +109,138 @@ def create_app() -> Flask:
 
 
 class ModelWrapper:
-    """Encapsulates the malware detection model.
+    """Encapsulates the LightGBM model trained by the project."""
 
-    The default implementation provides a deterministic heuristic so that the
-    application can be executed without the real model. To integrate your model,
-    load it inside :meth:`__init__` and replace :meth:`predict` with actual
-    inference logic.
-    """
+    THRESHOLD = 0.5
 
     def __init__(self, model_path: Path) -> None:
         self.model_path = model_path
         self.model = self._load_model()
 
     def _load_model(self) -> Any:
-        """Load a trained model from ``self.model_path`` if it exists.
-
-        The method intentionally avoids importing project-specific modules so
-        that this file remains self-contained. When integrating your production
-        model, feel free to import the necessary libraries here.
-        """
-
-        if self.model_path.exists():
-            # Placeholder for custom loading logic. The file path is exposed so
-            # you can drop in your serialized model artifact.
-            # Example:
-            #   import joblib
-            #   return joblib.load(self.model_path)
-            return self.model_path  # sentinel to indicate a real model is present
-
-        # Fallback heuristic (no ML model available).
+        if self.model_path and self.model_path.exists():
+            try:
+                return lgb.Booster(model_file=str(self.model_path))
+            except Exception as exc:
+                print(f"无法加载 LightGBM 模型 {self.model_path}: {exc}")
         return None
 
-    def analyse_payload(self, filename: str, payload: bytes) -> Dict[str, Any]:
+    def analyse_file(self, filename: str, file_path: Path) -> Dict[str, Any]:
+        if not file_path.is_file():
+            raise ValueError("上传文件保存失败，请重试。")
+
+        payload = file_path.read_bytes()
         if not payload:
             raise ValueError("上传的文件为空，请提供有效的PE文件。")
 
-        score, label = self.predict(payload)
-        sha256 = hashlib.sha256(payload).hexdigest()
+        features = extract_features(file_path)
+        vector = vectorize_features(features).astype(np.float32)
+
+        score, label = self.predict(vector, features)
+        sha256 = features.get("sha256") or hashlib.sha256(payload).hexdigest()
+        md5 = features.get("md5") or hashlib.md5(payload).hexdigest()
         size_kb = len(payload) / 1024
+
+        insights = self._build_analysis(features, score)
 
         report = {
             "filename": filename,
             "sha256": sha256,
+            "md5": md5,
             "size_kb": round(size_kb, 2),
             "detection_score": round(score, 4),
             "label": label,
             "generated_at": datetime.utcnow().isoformat() + "Z",
             "model_path": str(self.model_path),
             "model_loaded": bool(self.model),
+            "stored_file": str(file_path),
+            "insights": insights,
         }
         return report
 
-    def predict(self, payload: bytes) -> Tuple[float, str]:
-        if self.model is None:
-            # Lightweight heuristic: flag files larger than 500KB and containing
-            # uncommon byte patterns as suspicious. This logic is only for demo
-            # purposes and should be replaced by real inference code.
-            entropy = self._shannon_entropy(payload)
-            size_score = min(len(payload) / (500 * 1024), 1.0)
-            entropy_score = min(entropy / 8.0, 1.0)
-            score = 0.6 * size_score + 0.4 * entropy_score
-            label = "恶意 (Malicious)" if score >= 0.5 else "良性 (Benign)"
-            return score, label
+    def predict(self, vector: np.ndarray, features: Dict[str, Any]) -> Tuple[float, str]:
+        if self.model is not None:
+            try:
+                probability = float(self.model.predict(vector.reshape(1, -1))[0])
+            except Exception:
+                raw_score = float(self.model.predict(vector.reshape(1, -1), raw_score=True)[0])
+                probability = self._sigmoid(raw_score)
+        else:
+            probability = self._heuristic_probability(vector, features)
 
-        # If a real model is present, ``self.model`` currently just stores the
-        # path. Replace this block with actual predictions.
-        # Example:
-        #   features = feature_extractor(payload)
-        #   proba = self.model.predict_proba([features])[0, 1]
-        #   return float(proba), "Malicious" if proba >= 0.5 else "Benign"
-        return 0.5, "待接入真实模型 (Pending model integration)"
+        label = "恶意 (Malicious)" if probability >= self.THRESHOLD else "良性 (Benign)"
+        return probability, label
 
     @staticmethod
-    def _shannon_entropy(payload: bytes) -> float:
-        if not payload:
-            return 0.0
-        byte_counts = [0] * 256
-        for b in payload:
-            byte_counts[b] += 1
-        entropy = 0.0
-        length = len(payload)
-        for count in byte_counts:
-            if count == 0:
-                continue
-            p = count / length
-            entropy -= p * math.log2(p)
-        return entropy
+    def _sigmoid(value: float) -> float:
+        return 1.0 / (1.0 + math.exp(-value))
+
+    def _heuristic_probability(self, vector: np.ndarray, features: Dict[str, Any]) -> float:
+        general = features.get("general", {}) or {}
+        strings = features.get("strings", {}) or {}
+        sections = features.get("section", {}).get("sections", []) or []
+
+        size_score = min(float(general.get("size", 0)) / (600 * 1024), 1.0)
+        suspicious_strings = len(strings.get("suspicious_strings", []))
+        string_score = min(suspicious_strings / 5.0, 1.0)
+        high_entropy_sections = sum(1 for section in sections if float(section.get("entropy", 0)) >= 7.5)
+        entropy_score = min(high_entropy_sections / max(len(sections), 1), 1.0)
+
+        combined = 0.4 * size_score + 0.35 * string_score + 0.25 * entropy_score
+        return max(0.0, min(combined, 1.0))
+
+    def _build_analysis(self, features: Dict[str, Any], score: float) -> Dict[str, Any]:
+        strings = features.get("strings", {}) or {}
+        sections = features.get("section", {}) or {}
+        imports = features.get("imports", {}) or {}
+        general = features.get("general", {}) or {}
+
+        suspicious_strings: List[str] = strings.get("suspicious_strings", [])[:6]
+        high_entropy_sections = [
+            section
+            for section in sections.get("sections", []) or []
+            if float(section.get("entropy", 0)) >= 7.5
+        ]
+        total_imports = sum(len(entries) for entries in imports.values() if isinstance(entries, Iterable))
+        has_signature = bool(general.get("has_signature"))
+
+        bullets: List[str] = []
+        if score >= self.THRESHOLD:
+            bullets.append("模型判定恶意概率较高，请谨慎处理该文件。")
+            if suspicious_strings:
+                bullets.append("检测到潜在恶意命令片段，例如：" + "；".join(suspicious_strings[:3]))
+            if high_entropy_sections:
+                bullets.append(f"发现 {len(high_entropy_sections)} 个高熵节区，疑似存在壳或加密。")
+            if total_imports > 300:
+                bullets.append(f"导入函数数量达到 {total_imports} 个，复杂度异常。")
+        else:
+            bullets.append("模型判定倾向于良性，未发现显著恶意特征。")
+            if has_signature:
+                bullets.append("文件包含数字签名，提高可信度。")
+            if not high_entropy_sections:
+                bullets.append("节区熵值平稳，未见明显壳特征。")
+            if total_imports and total_imports < 80:
+                bullets.append(f"导入函数数量较少（约 {total_imports} 个），符合轻量级程序特征。")
+
+        insights = {
+            "headline": bullets[0] if bullets else "",
+            "bullets": bullets,
+            "suspicious_strings": suspicious_strings,
+            "top_imports": self._top_imports(imports),
+            "high_entropy_sections": [section.get("name") for section in high_entropy_sections[:5]],
+        }
+        return insights
+
+    def _top_imports(self, imports: Dict[str, Iterable[str]], limit: int = 5) -> List[str]:
+        ranked: List[Tuple[int, str]] = []
+        for library, entries in imports.items():
+            if isinstance(entries, Iterable):
+                count = len(list(entries)) if not isinstance(entries, list) else len(entries)
+            else:
+                count = 0
+            ranked.append((count, str(library)))
+        ranked.sort(key=lambda item: item[0], reverse=True)
+        return [f"{name} ({count})" for count, name in ranked[:limit] if name]
 
 
 def allowed_file(filename: str) -> bool:

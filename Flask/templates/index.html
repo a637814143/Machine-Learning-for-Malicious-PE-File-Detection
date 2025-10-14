@@ -35,7 +35,7 @@
           <li>点击“开始检测”，等待分析完成。</li>
           <li>系统将展示检测结果，并可下载JSON格式的详细报告。</li>
         </ol>
-        <p class="note">提示：如需接入真实模型，请将模型文件放置在 <code>{{ model_path }}</code>，并在 <code>ModelWrapper</code> 中实现实际推理逻辑。</p>
+        <p class="note">提示：服务会自动从 <code>{{ model_path }}</code> 加载 LightGBM 模型（默认即项目根目录的 <code>model.txt</code>）。若需替换模型，可通过环境变量 <code>MALWARE_MODEL</code> 指定路径。</p>
       </section>
     </div>
   </body>

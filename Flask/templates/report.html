@@ -15,17 +15,63 @@
       <section class="report">
         <dl>
           <div><dt>SHA256</dt><dd><code>{{ report.sha256 }}</code></dd></div>
+          <div><dt>MD5</dt><dd><code>{{ report.md5 }}</code></dd></div>
           <div><dt>文件大小</dt><dd>{{ report.size_kb }} KB</dd></div>
           <div><dt>风险评分</dt><dd>{{ report.detection_score }}</dd></div>
           <div><dt>判定</dt><dd class="label">{{ report.label }}</dd></div>
           <div><dt>生成时间</dt><dd>{{ report.generated_at }}</dd></div>
           <div><dt>模型路径</dt><dd><code>{{ report.model_path }}</code></dd></div>
           <div><dt>模型是否已加载</dt><dd>{{ '是' if report.model_loaded else '否' }}</dd></div>
-          {% if report.stored_file %}
           <div><dt>文件存储位置</dt><dd><code>{{ report.stored_file }}</code></dd></div>
-          {% endif %}
         </dl>
       </section>
+
+      {% if report.insights %}
+      <section class="insights">
+        <h2>模型分析</h2>
+        <p class="headline">{{ report.insights.headline }}</p>
+        <ul>
+          {% for bullet in report.insights.bullets %}
+          <li>{{ bullet }}</li>
+          {% endfor %}
+        </ul>
+
+        <div class="insight-grid">
+          {% if report.insights.suspicious_strings %}
+          <div>
+            <h3>可疑字符串</h3>
+            <ul>
+              {% for item in report.insights.suspicious_strings %}
+              <li><code>{{ item }}</code></li>
+              {% endfor %}
+            </ul>
+          </div>
+          {% endif %}
+
+          {% if report.insights.top_imports %}
+          <div>
+            <h3>主要导入库</h3>
+            <ul>
+              {% for item in report.insights.top_imports %}
+              <li>{{ item }}</li>
+              {% endfor %}
+            </ul>
+          </div>
+          {% endif %}
+
+          {% if report.insights.high_entropy_sections %}
+          <div>
+            <h3>高熵节区</h3>
+            <ul>
+              {% for item in report.insights.high_entropy_sections %}
+              <li><code>{{ item }}</code></li>
+              {% endfor %}
+            </ul>
+          </div>
+          {% endif %}
+        </div>
+      </section>
+      {% endif %}
 
       <div class="actions">
         <a class="button" href="{{ url_for('download_report', report_name=report_file) }}">下载JSON报告</a>
