@@ -305,6 +305,17 @@ main {
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
 }
 
+.panel__note {
+  margin-top: 1.5rem;
+  padding: 1rem 1.25rem;
+  border-radius: 14px;
+  border: 1px dashed rgba(57, 255, 20, 0.35);
+  background: rgba(5, 12, 18, 0.75);
+  color: rgba(190, 255, 224, 0.75);
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+
 .field {
   display: grid;
   gap: 0.75rem;
@@ -470,6 +481,57 @@ main {
   gap: 0.25rem;
   color: rgba(210, 255, 228, 0.75);
   font-size: 0.85rem;
+}
+
+.result-card__reasoning {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.result-card__reasoning h3 {
+  margin: 0;
+  font-size: 1rem;
+  color: rgba(57, 255, 20, 0.75);
+}
+
+.result-card__bullets {
+  margin: 0;
+  padding-left: 1.25rem;
+  display: grid;
+  gap: 0.35rem;
+  color: rgba(210, 255, 228, 0.75);
+  font-size: 0.9rem;
+}
+
+.result-card__bullets li {
+  line-height: 1.5;
+}
+
+.result-card__actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+  justify-content: space-between;
+}
+
+.result-card__details {
+  flex: 1 1 250px;
+  border: 1px solid rgba(57, 255, 20, 0.18);
+  border-radius: 12px;
+  background: rgba(4, 10, 15, 0.85);
+  padding: 0.75rem 1rem;
+  color: rgba(190, 255, 224, 0.8);
+}
+
+.result-card__details summary {
+  cursor: pointer;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.result-card__details[open] {
+  box-shadow: 0 0 0 1px rgba(57, 255, 20, 0.25);
 }
 
 .result-card__json {

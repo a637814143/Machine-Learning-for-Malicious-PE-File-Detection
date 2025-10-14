@@ -121,11 +121,11 @@ Once started the service exposes the following HTTP endpoints:
 
 ### 3. Explore the neon console
 
-Visit [http://127.0.0.1:8000/](http://127.0.0.1:8000/) and you will be greeted by the "Malicious PE Sentinel" interface. The page embraces a cyberpunk aesthetic with animated scanlines, glitch typography, and status indicators. It mirrors all capabilities of the GUI:
+Visit [http://127.0.0.1:8000/](http://127.0.0.1:8000/) to enter the neon "Malicious PE Sentinel" console. The interface now focuses on a streamlined Chinese workflow while preserving the cyberpunk look and feel:
 
 - Switch between uploading a binary or referencing a path already present on the server.
-- Tune the detection threshold and provide an alternative model file if desired.
-- Inspect verdicts, confidence values, and the raw JSON payload rendered in real time.
+- Rely on the project’s bundled `model.txt` with a fixed decision threshold of `0.0385`, identical to the desktop GUI.
+- View concise verdict summaries and reasoning bullets, then download the complete JSON report for archival or sharing.
 - Review a chronological event log that records every request/response pair for traceability.
 
 ### 4. Send API requests directly
@@ -134,8 +134,7 @@ Upload a PE file directly:
 
 ```bash
 curl -X POST http://127.0.0.1:8000/predict \
-  -F "file=@/path/to/sample.exe" \
-  -F "threshold=0.7"
+  -F "file=@/path/to/sample.exe"
 ```
 
 Analyse a file that already exists on the server:
@@ -144,9 +143,7 @@ Analyse a file that already exists on the server:
 curl -X POST http://127.0.0.1:8000/predict \
   -H "Content-Type: application/json" \
   -d '{
-        "path": "C:/malware_samples/locked.exe",
-        "model_path": "./model.txt",
-        "threshold": 0.65
+        "path": "C:/malware_samples/locked.exe"
       }'
 ```
 

@@ -124,12 +124,12 @@ python -m Flask.app --host 0.0.0.0 --port 8000
 
 ### 3. 体验骇客风控制台
 
-访问 [http://127.0.0.1:8000/](http://127.0.0.1:8000/) 即可进入 “Malicious PE Sentinel” 互动界面。页面采用赛博朋克风格，包含扫描线、故障字体和实时状态指示，功能与桌面 GUI 完全一致：
+访问 [http://127.0.0.1:8000/](http://127.0.0.1:8000/) 即可进入焕新的 “Malicious PE Sentinel” 互动界面。页面延续赛博朋克风格，同时面向中文用户优化流程：
 
-- 在上传二进制文件与输入服务器已有路径之间自由切换。
-- 调整检测阈值、可选填写自定义模型路径。
-- 即时查看判定结果、置信度，并以 JSON 形式渲染完整响应。
-- 时间轴日志记录每一次请求/响应，方便追踪与审计。
+- 可在上传二进制文件与输入服务器已有路径之间自由切换。
+- 服务固定使用项目自带的 `model.txt` 模型以及 `0.0385` 阈值，确保与桌面 GUI 判定一致。
+- 页面展示精简的中文判定摘要与要点提示，并支持一键下载完整 JSON 报告。
+- 底部日志以时间顺序记录每一次请求/响应，方便追踪与审计。
 
 ### 4. 发起请求
 
@@ -137,8 +137,7 @@ python -m Flask.app --host 0.0.0.0 --port 8000
 
 ```bash
 curl -X POST http://127.0.0.1:8000/predict \
-  -F "file=@/path/to/sample.exe" \
-  -F "threshold=0.7"
+  -F "file=@/path/to/sample.exe"
 ```
 
 分析服务器本地已有的文件：
@@ -147,9 +146,7 @@ curl -X POST http://127.0.0.1:8000/predict \
 curl -X POST http://127.0.0.1:8000/predict \
   -H "Content-Type: application/json" \
   -d '{
-        "path": "C:/malware_samples/locked.exe",
-        "model_path": "./model.txt",
-        "threshold": 0.65
+        "path": "C:/malware_samples/locked.exe"
       }'
 ```
 

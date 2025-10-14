@@ -12,7 +12,10 @@ from flask import Blueprint, Flask, jsonify, render_template, request
 from werkzeug.datastructures import FileStorage
 from werkzeug.utils import secure_filename
 
-from scripts.D import DEFAULT_THRESHOLD, predict_file_with_features
+from scripts.D import DEFAULT_MODEL, DEFAULT_THRESHOLD, predict_file_with_features
+
+MODEL_PATH = str(DEFAULT_MODEL)
+THRESHOLD = float(DEFAULT_THRESHOLD)
 
 bp = Blueprint("pe_detection", __name__)
 
@@ -27,6 +30,8 @@ def _service_description() -> dict[str, Any]:
             "GET /health": "Service heartbeat.",
             "POST /predict": "Analyse an uploaded PE file or an existing file path.",
         },
+        "model_path": MODEL_PATH,
+        "threshold": THRESHOLD,
     }
 
 
@@ -77,8 +82,8 @@ def predict() -> Any:
     try:
         result = predict_file_with_features(
             payload.file_path,
-            model_path=payload.model_path,
-            threshold=payload.threshold,
+            model_path=MODEL_PATH,
+            threshold=THRESHOLD,
         )
     except FileNotFoundError as exc:
         return jsonify({"error": str(exc)}), 400
@@ -98,21 +103,17 @@ def predict() -> Any:
 class Payload:
     """Container describing what should be analysed."""
 
-    __slots__ = ("file_path", "model_path", "threshold", "cleanup", "status", "error")
+    __slots__ = ("file_path", "cleanup", "status", "error")
 
     def __init__(
         self,
         file_path: str | None = None,
         *,
-        model_path: str | None = None,
-        threshold: float | None = None,
         cleanup: str | None = None,
         status: int = 200,
         error: str | None = None,
     ) -> None:
         self.file_path = file_path
-        self.model_path = model_path
-        self.threshold = DEFAULT_THRESHOLD if threshold is None else float(threshold)
         self.cleanup = cleanup
         self.status = status
         self.error = error
@@ -125,13 +126,10 @@ class RequestPayload(Payload):
 def _extract_payload(req) -> RequestPayload:
     """Parse the incoming HTTP request.
 
-    The GUI allows users to analyse a file from disk with an optional custom
-    model and threshold.  The HTTP interface mirrors these options: clients can
-    either upload a file or provide an existing path in JSON/form fields.
+    The GUI allows users to analyse a file from disk. The HTTP interface mirrors
+    this flow: clients can either upload a file or provide an existing path in
+    JSON/form fields while the service supplies the bundled model and threshold.
     """
-
-    threshold = _get_threshold(req)
-    model_path = _get_model_path(req)
 
     if req.files:
         uploaded = req.files.get("file")
@@ -143,12 +141,7 @@ def _extract_payload(req) -> RequestPayload:
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             uploaded.save(tmp)
             temp_path = tmp.name
-        return RequestPayload(
-            temp_path,
-            model_path=model_path,
-            threshold=threshold,
-            cleanup=temp_path,
-        )
+        return RequestPayload(temp_path, cleanup=temp_path)
 
     data = {}
     if req.is_json:
@@ -160,50 +153,7 @@ def _extract_payload(req) -> RequestPayload:
     if not path_value:
         return RequestPayload(status=400, error="请上传文件或提供 'path' 字段。")
 
-    return RequestPayload(
-        str(Path(path_value).expanduser()),
-        model_path=model_path,
-        threshold=threshold,
-    )
-
-
-def _get_threshold(req) -> float:
-    """Return the threshold requested by the client or the default."""
-
-    default = DEFAULT_THRESHOLD
-    candidate: str | None = None
-
-    if req.is_json:
-        json_payload = req.get_json(silent=True) or {}
-        candidate = json_payload.get("threshold")
-    elif req.form:
-        candidate = req.form.get("threshold")
-    else:
-        candidate = req.args.get("threshold")
-
-    if candidate is None:
-        return default
-
-    try:
-        return float(candidate)
-    except (TypeError, ValueError):
-        return default
-
-
-def _get_model_path(req) -> str | None:
-    """Return the custom model path requested by the client if provided."""
-
-    candidate: str | None = None
-    if req.is_json:
-        candidate = (req.get_json(silent=True) or {}).get("model_path")
-    elif req.form:
-        candidate = req.form.get("model_path")
-    else:
-        candidate = req.args.get("model_path")
-
-    if not candidate:
-        return None
-    return str(Path(candidate).expanduser())
+    return RequestPayload(str(Path(path_value).expanduser()))
 
 
 def _to_builtin_types(data: Any) -> Any:

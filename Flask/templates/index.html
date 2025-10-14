@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-Hans">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Malicious PE Sentinel</title>
+    <title>恶意PE哨兵控制台</title>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Share+Tech+Mono&display=swap" />
     <link rel="stylesheet" href="{{ url_for('static', filename='css/hacker.css') }}" />
   </head>
@@ -12,13 +12,13 @@
     <header class="hero">
       <div class="hero__content">
         <p class="hero__meta">NEURAL MALWARE FORTRESS</p>
-        <h1 class="hero__title" data-glitch="Malicious PE Sentinel">Malicious PE Sentinel</h1>
+        <h1 class="hero__title" data-glitch="Malicious PE Sentinel">恶意 PE 哨兵</h1>
         <p class="hero__subtitle">
-          Upload a Portable Executable or reference a server path. Our machine learning sentry mirrors the desktop GUI to classify files with lightning speed.
+          将待检测的可执行文件上传或指定服务器路径，Web 控制台会以与桌面端完全一致的模型逻辑给出恶意判定。
         </p>
         <div class="hero__actions">
-          <button class="btn btn--primary" type="button" data-scroll-target="#analysis-panel">Enter the Matrix</button>
-          <a class="btn btn--secondary" href="https://flask.palletsprojects.com/" target="_blank" rel="noreferrer">Powered by Flask</a>
+          <button class="btn btn--primary" type="button" data-scroll-target="#analysis-panel">开始检测</button>
+          <a class="btn btn--secondary" href="https://flask.palletsprojects.com/" target="_blank" rel="noreferrer">Flask 提供动力</a>
         </div>
       </div>
     </header>
@@ -26,81 +26,68 @@
     <main>
       <section class="grid" aria-label="Service highlights">
         <article class="grid__card">
-          <h2>Realtime Verdicts</h2>
-          <p>Identical inference logic to the GUI, fortified with GPU-grade numpy acceleration.</p>
+          <h2>实时判定</h2>
+          <p>沿用桌面端推理流程，给出同源的恶意/良性结果。</p>
         </article>
         <article class="grid__card">
-          <h2>Dual Entry Modes</h2>
-          <p>Beam up bytes directly via upload or reference an existing path on the server.</p>
+          <h2>双模式接入</h2>
+          <p>既可上传样本，也可扫描已存在于服务器的文件。</p>
         </article>
         <article class="grid__card">
-          <h2>Tunable Sensitivity</h2>
-          <p>Fine-tune the detection threshold to balance aggressiveness and precision.</p>
+          <h2>固定基线</h2>
+          <p>服务固定使用 <code>model.txt</code> 模型与 0.0385 阈值，确保判定一致。</p>
         </article>
       </section>
 
       <section id="analysis-panel" class="panel">
         <div class="panel__header">
-          <h2>Interactive Threat Scanner</h2>
-          <p>Select how you'd like to analyse a file, then launch the investigation.</p>
+          <h2>交互式威胁扫描</h2>
+          <p>选择文件来源并启动检测，服务将自动记录检测报告供下载。</p>
         </div>
 
         <form id="analysis-form" class="panel__body">
           <fieldset class="mode-switch">
-            <legend>Acquisition Channel</legend>
+            <legend>文件来源</legend>
             <label class="mode-switch__option">
               <input type="radio" name="mode" value="upload" checked />
-              <span>Upload Binary</span>
+              <span>上传样本</span>
             </label>
             <label class="mode-switch__option">
               <input type="radio" name="mode" value="path" />
-              <span>Server Path</span>
+              <span>服务器路径</span>
             </label>
           </fieldset>
 
           <div class="form-grid">
             <label class="field" data-field="upload">
-              <span class="field__label">Portable Executable</span>
+              <span class="field__label">PE 文件</span>
               <div class="field__input field__input--file">
                 <input type="file" id="file" name="file" accept=".exe,.dll,.bin,.sys,.scr,.drv,.ocx,.cpl,.msc" />
-                <span class="field__hint">Drag & drop allowed. Max size depends on server limits.</span>
+                <span class="field__hint">支持拖拽上传，具体大小取决于服务器限制。</span>
               </div>
             </label>
 
             <label class="field hidden" data-field="path">
-              <span class="field__label">Absolute Path on Server</span>
+              <span class="field__label">服务器绝对路径</span>
               <div class="field__input">
                 <input type="text" id="path" name="path" placeholder="/opt/samples/malicious.exe" autocomplete="off" />
-                <span class="field__hint">Use when the file already resides on the service host.</span>
-              </div>
-            </label>
-
-            <label class="field">
-              <span class="field__label">Detection Threshold</span>
-              <div class="field__input field__input--range">
-                <input type="range" id="threshold" name="threshold" min="0" max="1" step="0.01" value="0.5" />
-                <output id="threshold-value" for="threshold">0.50</output>
-              </div>
-              <span class="field__hint">Lower = more aggressive (higher false positives). Higher = stricter (higher false negatives).</span>
-            </label>
-
-            <label class="field">
-              <span class="field__label">Custom Model (optional)</span>
-              <div class="field__input">
-                <input type="text" id="model_path" name="model_path" placeholder="/models/alt_model.pkl" autocomplete="off" />
-                <span class="field__hint">Leave blank to use the default model shipped with the GUI.</span>
+                <span class="field__hint">当文件已经存在于服务端时使用该选项。</span>
               </div>
             </label>
           </div>
 
+          <p class="panel__note">
+            <strong>说明：</strong> 服务默认加载项目根目录下的 <code>model.txt</code>，恶意判定阈值固定为 <code>0.0385</code>，与图形界面保持一致。
+          </p>
+
           <div class="panel__footer">
             <button class="btn btn--primary" type="submit">
               <span class="btn__glow"></span>
-              Initiate Scan
+              发起检测
             </button>
             <div class="status" role="status" aria-live="polite">
               <span class="status__pulse" hidden></span>
-              <span class="status__label">Awaiting command...</span>
+              <span class="status__label">等待指令...</span>
             </div>
           </div>
         </form>
@@ -108,18 +95,18 @@
 
       <section class="panel panel--results" aria-live="polite">
         <div class="panel__header">
-          <h2>Analysis Feed</h2>
-          <p>The classification output is streamed below with neon clarity.</p>
+          <h2>检测结果</h2>
+          <p>最新一次扫描会显示在最上方，并可导出 JSON 报告。</p>
         </div>
         <div class="results" id="results">
-          <div class="results__placeholder">No scans yet. Deploy the sentinel to begin.</div>
+          <div class="results__placeholder">尚未开始检测，点击“发起检测”以运行模型。</div>
         </div>
       </section>
 
       <section class="panel panel--logs">
         <div class="panel__header">
-          <h2>Event Chronicle</h2>
-          <p>See raw request/response pairs for forensic transparency.</p>
+          <h2>交互日志</h2>
+          <p>记录每次请求与响应，便于后续审计。</p>
         </div>
         <ol class="log" id="event-log"></ol>
       </section>
@@ -127,7 +114,7 @@
 
     <footer class="footer">
       <p>Machine Learning for Malicious PE File Detection &copy; {{ current_year }}</p>
-      <p class="footer__ascii">&lt;/&gt; Crafted for cyber sentinels.</p>
+      <p class="footer__ascii">&lt;/&gt; 为安全研究者打造的赛博面板</p>
     </footer>
 
     <script src="{{ url_for('static', filename='js/hacker.js') }}" defer></script>

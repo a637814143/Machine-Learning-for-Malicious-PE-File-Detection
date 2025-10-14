@@ -7,10 +7,6 @@ const formatter = new Intl.DateTimeFormat(undefined, {
   second: '2-digit',
 });
 
-function updateThresholdDisplay(range, output) {
-  output.textContent = Number(range.value).toFixed(2);
-}
-
 function toggleMode(mode) {
   $$('.field[data-field]').forEach((field) => {
     const isActive = field.dataset.field === mode;
@@ -40,10 +36,10 @@ function addLogEntry({ request, response, success }) {
   time.textContent = `${success ? '✔' : '✖'} ${formatter.format(new Date())}`;
 
   const requestBlock = document.createElement('pre');
-  requestBlock.textContent = `REQUEST\n${request}`;
+  requestBlock.textContent = `请求\n${request}`;
 
   const responseBlock = document.createElement('pre');
-  responseBlock.textContent = `RESPONSE\n${response}`;
+  responseBlock.textContent = `响应\n${response}`;
 
   entry.append(time, requestBlock, responseBlock);
   log.prepend(entry);
@@ -68,46 +64,91 @@ function renderResultCard(data) {
   const verdictText = String(data.verdict ?? '').trim();
   const malicious = /恶/.test(verdictText) || /mal/i.test(verdictText);
   verdict.dataset.state = malicious ? 'malicious' : 'benign';
-  verdict.textContent = malicious ? 'MALICIOUS' : 'BENIGN';
+  verdict.textContent = malicious ? '恶意' : '良性';
 
   const score = document.createElement('span');
   score.className = 'result-card__score';
   const probability = Number(data.probability ?? 0);
   const displayProbability = data.display_probability ?? `${(probability * 100).toFixed(2)}%`;
-  score.textContent = `Confidence: ${displayProbability}`;
+  score.textContent = `置信度：${displayProbability}`;
 
   header.append(verdict, score);
 
   const meta = document.createElement('div');
   meta.className = 'result-card__meta';
+  const risk = data?.summary?.risk_assessment ?? {};
+  const riskLevel = risk?.level ? `${risk.level} (得分 ${Number(risk.score ?? 0).toFixed(1)}/10)` : '未知';
   meta.innerHTML = `
-    <p><strong>File:</strong> ${data.file_path ?? 'Unknown'}</p>
-    <p><strong>Model:</strong> ${data.model_path ?? 'Default'}</p>
-    <p><strong>Threshold:</strong> ${(Number(data.threshold ?? 0).toFixed(2))}</p>
+    <p><strong>文件：</strong> ${data.file_path ?? '未知'}</p>
+    <p><strong>风险评估：</strong> ${riskLevel}</p>
+    <p><strong>使用模型：</strong> ${data.model_path ?? 'model.txt'}</p>
+    <p><strong>判定阈值：</strong> ${(Number(data.threshold ?? 0).toFixed(4))}</p>
   `;
 
-  const json = document.createElement('pre');
-  json.className = 'result-card__json';
-  json.textContent = JSON.stringify(data, null, 2);
+  const reasoning = document.createElement('div');
+  reasoning.className = 'result-card__reasoning';
+  const headline = data?.reasoning?.headline;
+  if (headline) {
+    const heading = document.createElement('h3');
+    heading.textContent = headline;
+    reasoning.append(heading);
+  }
 
-  card.append(header, meta, json);
+  const bullets = Array.isArray(data?.reasoning?.bullets) ? data.reasoning.bullets.slice(0, 5) : [];
+  if (bullets.length > 0) {
+    const list = document.createElement('ul');
+    list.className = 'result-card__bullets';
+    bullets.forEach((item) => {
+      const li = document.createElement('li');
+      li.textContent = item;
+      list.append(li);
+    });
+    reasoning.append(list);
+  }
+
+  const actions = document.createElement('div');
+  actions.className = 'result-card__actions';
+
+  const downloadBtn = document.createElement('button');
+  downloadBtn.type = 'button';
+  downloadBtn.className = 'btn btn--secondary';
+  downloadBtn.textContent = '下载报告';
+  downloadBtn.addEventListener('click', () => {
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    const fallbackName = (data.file_path ? data.file_path.split(/\\|\//).pop() : 'report') || 'report';
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    anchor.href = url;
+    anchor.download = `${fallbackName}-report-${stamp}.json`;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  });
+
+  const detailToggle = document.createElement('details');
+  detailToggle.className = 'result-card__details';
+  const summary = document.createElement('summary');
+  summary.textContent = '查看原始数据';
+  const raw = document.createElement('pre');
+  raw.className = 'result-card__json';
+  raw.textContent = JSON.stringify(data, null, 2);
+  detailToggle.append(summary, raw);
+
+  actions.append(downloadBtn, detailToggle);
+
+  card.append(header, meta, reasoning, actions);
   results.prepend(card);
 }
 
-function serialiseForm({ mode, threshold, modelPath, file, pathValue }) {
-  const cleanedThreshold = threshold ? Number(threshold).toFixed(2) : undefined;
+function serialiseForm({ mode, file, pathValue }) {
   if (mode === 'upload') {
     if (!file) {
       throw new Error('请选择需要扫描的文件。');
     }
     const formData = new FormData();
     formData.append('file', file);
-    if (cleanedThreshold) {
-      formData.append('threshold', cleanedThreshold);
-    }
-    if (modelPath) {
-      formData.append('model_path', modelPath);
-    }
     return { body: formData, headers: undefined };
   }
 
@@ -116,12 +157,6 @@ function serialiseForm({ mode, threshold, modelPath, file, pathValue }) {
   }
 
   const payload = { path: pathValue };
-  if (cleanedThreshold) {
-    payload.threshold = Number(cleanedThreshold);
-  }
-  if (modelPath) {
-    payload.model_path = modelPath;
-  }
   return {
     body: JSON.stringify(payload),
     headers: { 'Content-Type': 'application/json' },
@@ -141,14 +176,6 @@ function bindScrollButtons() {
 
 document.addEventListener('DOMContentLoaded', () => {
   const form = $('#analysis-form');
-  const thresholdRange = $('#threshold');
-  const thresholdOutput = $('#threshold-value');
-  const hero = $('.hero');
-
-  if (thresholdRange && thresholdOutput) {
-    updateThresholdDisplay(thresholdRange, thresholdOutput);
-    thresholdRange.addEventListener('input', () => updateThresholdDisplay(thresholdRange, thresholdOutput));
-  }
 
   $$('input[name="mode"]').forEach((radio) => {
     radio.addEventListener('change', (event) => {
@@ -168,25 +195,23 @@ document.addEventListener('DOMContentLoaded', () => {
     const fileInput = $('#file');
     const file = fileInput?.files?.[0];
     const pathValue = $('#path')?.value.trim();
-    const threshold = thresholdRange?.value;
-    const modelPath = $('#model_path')?.value.trim();
 
     let requestDescription = '';
     let body;
     let headers;
 
     try {
-      ({ body, headers } = serialiseForm({ mode, threshold, modelPath, file, pathValue }));
+      ({ body, headers } = serialiseForm({ mode, file, pathValue }));
       requestDescription = mode === 'upload'
-        ? `POST /predict (multipart)\nthreshold=${threshold}\nmodel=${modelPath || 'default'}\nfile=${file?.name ?? 'n/a'}`
-        : `POST /predict (json)\nthreshold=${threshold}\nmodel=${modelPath || 'default'}\npath=${pathValue}`;
+        ? `POST /predict (multipart)\nfile=${file?.name ?? 'n/a'}`
+        : `POST /predict (json)\npath=${pathValue}`;
     } catch (error) {
       setStatus(error.message, { busy: false, tone: 'error' });
       submitButton.disabled = false;
       return;
     }
 
-    setStatus('Transmitting payload to sentinel...', { busy: true });
+    setStatus('正在传输样本...', { busy: true });
 
     try {
       const response = await fetch('/predict', {
@@ -210,7 +235,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       renderResultCard(payload);
-      setStatus('Scan complete. Sentinel standing by.', { busy: false, tone: 'success' });
+      setStatus('检测完成，报告已生成。', { busy: false, tone: 'success' });
       addLogEntry({ request: requestDescription, response: JSON.stringify(payload, null, 2), success: true });
     } catch (networkError) {
       setStatus(networkError.message || '网络异常，扫描失败。', { busy: false, tone: 'error' });
