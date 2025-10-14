@@ -7,6 +7,15 @@ const formatter = new Intl.DateTimeFormat(undefined, {
   second: '2-digit',
 });
 
+const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+});
+
 function toggleMode(mode) {
   $$('.field[data-field]').forEach((field) => {
     const isActive = field.dataset.field === mode;
@@ -26,22 +35,22 @@ function setStatus(label, { busy = false, tone = 'neutral' } = {}) {
   }
 }
 
-function addLogEntry({ request, response, success }) {
+function addLogEntry({ success, message }) {
   const log = $('#event-log');
   const entry = document.createElement('li');
   entry.className = 'log__entry';
+  entry.dataset.state = success ? 'success' : 'error';
 
   const time = document.createElement('time');
-  time.dateTime = new Date().toISOString();
-  time.textContent = `${success ? '✔' : '✖'} ${formatter.format(new Date())}`;
+  const now = new Date();
+  time.dateTime = now.toISOString();
+  time.textContent = `${success ? '✔' : '✖'} ${formatter.format(now)}`;
 
-  const requestBlock = document.createElement('pre');
-  requestBlock.textContent = `请求\n${request}`;
+  const summary = document.createElement('p');
+  summary.className = 'log__message';
+  summary.textContent = message;
 
-  const responseBlock = document.createElement('pre');
-  responseBlock.textContent = `响应\n${response}`;
-
-  entry.append(time, requestBlock, responseBlock);
+  entry.append(time, summary);
   log.prepend(entry);
 }
 
@@ -78,11 +87,22 @@ function renderResultCard(data) {
   meta.className = 'result-card__meta';
   const risk = data?.summary?.risk_assessment ?? {};
   const riskLevel = risk?.level ? `${risk.level} (得分 ${Number(risk.score ?? 0).toFixed(1)}/10)` : '未知';
+  const generatedAtIso = data.report_generated_at;
+  let generatedAtDisplay = '未知';
+  if (generatedAtIso) {
+    const generatedDate = new Date(generatedAtIso);
+    if (!Number.isNaN(generatedDate.getTime())) {
+      generatedAtDisplay = dateTimeFormatter.format(generatedDate);
+    }
+  }
+  const reportName = data.report_filename || 'report.md';
   meta.innerHTML = `
     <p><strong>文件：</strong> ${data.file_path ?? '未知'}</p>
     <p><strong>风险评估：</strong> ${riskLevel}</p>
     <p><strong>使用模型：</strong> ${data.model_path ?? 'model.txt'}</p>
     <p><strong>判定阈值：</strong> ${(Number(data.threshold ?? 0).toFixed(4))}</p>
+    <p><strong>报告文件：</strong> ${reportName}</p>
+    <p><strong>生成时间：</strong> ${generatedAtDisplay}</p>
   `;
 
   const reasoning = document.createElement('div');
@@ -114,13 +134,19 @@ function renderResultCard(data) {
   downloadBtn.className = 'btn btn--secondary';
   downloadBtn.textContent = '下载报告';
   downloadBtn.addEventListener('click', () => {
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const markdown = data.report_markdown;
+    if (!markdown) {
+      setStatus('报告生成失败，请检查服务响应。', { busy: false, tone: 'error' });
+      return;
+    }
+
+    const blob = new Blob([markdown], { type: 'text/markdown' });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     const fallbackName = (data.file_path ? data.file_path.split(/\\|\//).pop() : 'report') || 'report';
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     anchor.href = url;
-    anchor.download = `${fallbackName}-report-${stamp}.json`;
+    anchor.download = data.report_filename || `${fallbackName}-report-${stamp}.md`;
     document.body.append(anchor);
     anchor.click();
     anchor.remove();
@@ -196,15 +222,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const file = fileInput?.files?.[0];
     const pathValue = $('#path')?.value.trim();
 
-    let requestDescription = '';
     let body;
     let headers;
 
     try {
       ({ body, headers } = serialiseForm({ mode, file, pathValue }));
-      requestDescription = mode === 'upload'
-        ? `POST /predict (multipart)\nfile=${file?.name ?? 'n/a'}`
-        : `POST /predict (json)\npath=${pathValue}`;
     } catch (error) {
       setStatus(error.message, { busy: false, tone: 'error' });
       submitButton.disabled = false;
@@ -230,20 +252,29 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!response.ok) {
         const message = payload?.error || `服务返回错误 (${response.status})`;
         setStatus(message, { busy: false, tone: 'error' });
-        addLogEntry({ request: requestDescription, response: text, success: false });
+        addLogEntry({ success: false, message });
         return;
       }
 
       renderResultCard(payload);
       setStatus('检测完成，报告已生成。', { busy: false, tone: 'success' });
-      addLogEntry({ request: requestDescription, response: JSON.stringify(payload, null, 2), success: true });
+
+      const verdictText = String(payload.verdict ?? '未知');
+      const malicious = /恶/.test(verdictText) || /mal/i.test(verdictText);
+      const probabilityValue = Number(payload.probability ?? 0);
+      const rawDisplay = payload.display_probability !== undefined
+        ? parseFloat(payload.display_probability)
+        : probabilityValue * 100;
+      const formattedProbability = Number.isFinite(rawDisplay)
+        ? `${rawDisplay.toFixed(2)}%`
+        : '未知';
+      const fileLabel = (payload.file_path || '').split(/\\|\//).filter(Boolean).pop() || '样本';
+      const summaryMessage = `${fileLabel} → ${malicious ? '恶意' : '良性'}（置信度 ${formattedProbability}）`;
+      addLogEntry({ success: true, message: summaryMessage });
     } catch (networkError) {
       setStatus(networkError.message || '网络异常，扫描失败。', { busy: false, tone: 'error' });
-      addLogEntry({
-        request: requestDescription,
-        response: networkError.message || String(networkError),
-        success: false,
-      });
+      const fallback = networkError?.message || String(networkError) || '未知错误';
+      addLogEntry({ success: false, message: fallback });
     } finally {
       submitButton.disabled = false;
     }

@@ -12,6 +12,7 @@ from flask import Blueprint, Flask, jsonify, render_template, request
 from werkzeug.datastructures import FileStorage
 from werkzeug.utils import secure_filename
 
+from core.report_builder import build_markdown_report
 from scripts.D import DEFAULT_MODEL, DEFAULT_THRESHOLD, predict_file_with_features
 
 MODEL_PATH = str(DEFAULT_MODEL)
@@ -97,23 +98,47 @@ def predict() -> Any:
                 pass
 
     clean_result = _to_builtin_types(result)
+
+    display_path = payload.display_path or clean_result.get("file_path")
+    if display_path:
+        clean_result["file_path"] = str(display_path)
+
+    report_markdown = ""
+    report_filename = None
+    try:
+        if display_path:
+            report_markdown = build_markdown_report(Path(display_path), clean_result)
+            report_filename = _report_filename(display_path)
+    except Exception:
+        report_markdown = ""
+        report_filename = None
+
+    clean_result["report_markdown"] = report_markdown
+    if report_filename:
+        clean_result["report_filename"] = report_filename
+    else:
+        clean_result["report_filename"] = _report_filename(display_path or "report")
+    clean_result["report_generated_at"] = datetime.now().isoformat(timespec="seconds")
+
     return jsonify(clean_result)
 
 
 class Payload:
     """Container describing what should be analysed."""
 
-    __slots__ = ("file_path", "cleanup", "status", "error")
+    __slots__ = ("file_path", "display_path", "cleanup", "status", "error")
 
     def __init__(
         self,
         file_path: str | None = None,
         *,
+        display_path: str | None = None,
         cleanup: str | None = None,
         status: int = 200,
         error: str | None = None,
     ) -> None:
         self.file_path = file_path
+        self.display_path = display_path or file_path
         self.cleanup = cleanup
         self.status = status
         self.error = error
@@ -136,12 +161,13 @@ def _extract_payload(req) -> RequestPayload:
         if not isinstance(uploaded, FileStorage) or uploaded.filename == "":
             return RequestPayload(status=400, error="未接收到有效的文件上传。")
 
-        filename = secure_filename(uploaded.filename)
+        raw_name = Path(uploaded.filename or "upload.bin").name
+        filename = secure_filename(raw_name) or "upload.bin"
         suffix = Path(filename).suffix or ".bin"
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             uploaded.save(tmp)
             temp_path = tmp.name
-        return RequestPayload(temp_path, cleanup=temp_path)
+        return RequestPayload(temp_path, display_path=raw_name, cleanup=temp_path)
 
     data = {}
     if req.is_json:
@@ -153,7 +179,17 @@ def _extract_payload(req) -> RequestPayload:
     if not path_value:
         return RequestPayload(status=400, error="请上传文件或提供 'path' 字段。")
 
-    return RequestPayload(str(Path(path_value).expanduser()))
+    expanded = Path(path_value).expanduser()
+    return RequestPayload(str(expanded), display_path=str(expanded))
+
+
+def _report_filename(file_path: str | Path) -> str:
+    """Build a friendly markdown filename for download."""
+
+    base = Path(file_path).stem if file_path else "report"
+    safe = secure_filename(base) or (base.strip() or "report")
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    return f"{safe}-report-{stamp}.md"
 
 
 def _to_builtin_types(data: Any) -> Any:

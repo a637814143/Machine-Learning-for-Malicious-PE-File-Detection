@@ -125,8 +125,8 @@ Visit [http://127.0.0.1:8000/](http://127.0.0.1:8000/) to enter the neon "Malici
 
 - Switch between uploading a binary or referencing a path already present on the server.
 - Rely on the project’s bundled `model.txt` with a fixed decision threshold of `0.0385`, identical to the desktop GUI.
-- View concise verdict summaries and reasoning bullets, then download the complete JSON report for archival or sharing.
-- Review a chronological event log that records every request/response pair for traceability.
+- View concise verdict summaries and reasoning bullets, then download the complete Markdown report for archival or sharing.
+- Review a chronological event log that captures the detection timestamp and verdict summary for traceability.
 
 ### 4. Send API requests directly
 
@@ -147,4 +147,4 @@ curl -X POST http://127.0.0.1:8000/predict \
       }'
 ```
 
-The JSON response mirrors what the GUI displays, including the predicted label, confidence scores, and extracted feature summary. Errors (for example missing files) are also returned as JSON to simplify integration with other systems.
+The JSON response mirrors what the GUI displays, including the predicted label, confidence scores, extracted feature summary, and a `report_markdown` field containing the GUI-equivalent report plus a suggested `report_filename`. Errors (for example missing files) are also returned as JSON to simplify integration with other systems.
