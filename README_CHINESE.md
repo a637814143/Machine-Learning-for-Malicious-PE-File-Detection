@@ -90,3 +90,57 @@ Graduation-Project-ML-Malicious-PE/
 本项目提供了一个结构化的方法，用于利用机器学习检测恶意 PE 文件。
 框架和部分核心功能已建立。
 后续开发将实现完整的恶意软件分析、预测和报告功能。
+
+---
+
+## Flask Web 服务使用指南
+
+桌面 GUI 中的恶意样本分析流程已经通过 Flask Web 服务对外暴露，方便远程用户直接调用。
+
+### 1. 安装依赖
+
+```bash
+python -m venv .venv
+source .venv/bin/activate  # Windows 下使用：.venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+### 2. 启动服务
+
+直接运行模块即可启动服务，可通过命令行参数自定义监听地址、端口以及是否开启调试模式。
+
+```bash
+python -m Flask.app --host 0.0.0.0 --port 8000
+```
+
+启动后可访问的 HTTP 接口如下：
+
+| 方法  | 路径        | 说明                     |
+|-------|-------------|--------------------------|
+| GET   | `/`         | 服务简介与快速指引        |
+| GET   | `/health`   | 健康检查接口              |
+| POST  | `/predict`  | 执行恶意 PE 检测          |
+
+### 3. 发起请求
+
+直接上传待检测的 PE 文件：
+
+```bash
+curl -X POST http://127.0.0.1:8000/predict \
+  -F "file=@/path/to/sample.exe" \
+  -F "threshold=0.7"
+```
+
+分析服务器本地已有的文件：
+
+```bash
+curl -X POST http://127.0.0.1:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{
+        "path": "C:/malware_samples/locked.exe",
+        "model_path": "./model.txt",
+        "threshold": 0.65
+      }'
+```
+
+返回的 JSON 数据与 GUI 中展示的内容一致，包括预测标签、置信度和特征摘要；若发生错误（如文件不存在）也会以 JSON 形式返回，方便与其他系统对接。

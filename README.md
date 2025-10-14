@@ -84,6 +84,60 @@ Graduation-Project-ML-Malicious-PE/
 ---
 
 ## Summary
-This project provides a structured approach for detecting malicious PE files using machine learning.  
-The framework and partial core functionality have been established.  
+This project provides a structured approach for detecting malicious PE files using machine learning.
+The framework and partial core functionality have been established.
 Further development will enable complete malware analysis, prediction, and reporting capabilities.
+
+---
+
+## Flask Web Service Usage
+
+The desktop GUI's malware analysis pipeline is also exposed through a Flask web service so that it can be accessed remotely.
+
+### 1. Install dependencies
+
+```bash
+python -m venv .venv
+source .venv/bin/activate  # On Windows use: .venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+### 2. Start the service
+
+Run the application module directly. Command line arguments let you customise the bind host, port, and debug mode.
+
+```bash
+python -m Flask.app --host 0.0.0.0 --port 8000
+```
+
+Once started the service exposes the following HTTP endpoints:
+
+| Method | Path       | Description                               |
+|--------|------------|-------------------------------------------|
+| GET    | `/`        | Basic service description and usage hints |
+| GET    | `/health`  | Health check endpoint                     |
+| POST   | `/predict` | Run the malicious PE detector             |
+
+### 3. Send requests
+
+Upload a PE file directly:
+
+```bash
+curl -X POST http://127.0.0.1:8000/predict \
+  -F "file=@/path/to/sample.exe" \
+  -F "threshold=0.7"
+```
+
+Analyse a file that already exists on the server:
+
+```bash
+curl -X POST http://127.0.0.1:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{
+        "path": "C:/malware_samples/locked.exe",
+        "model_path": "./model.txt",
+        "threshold": 0.65
+      }'
+```
+
+The JSON response mirrors what the GUI displays, including the predicted label, confidence scores, and extracted feature summary. Errors (for example missing files) are also returned as JSON to simplify integration with other systems.

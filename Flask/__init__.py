@@ -16,3 +16,6 @@ def create_app() -> Flask:
     app = Flask(__name__)
     register_routes(app)
     return app
+
+
+__all__ = ["create_app"]
