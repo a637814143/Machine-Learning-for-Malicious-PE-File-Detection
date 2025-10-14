@@ -2,11 +2,21 @@
 from __future__ import annotations
 
 import argparse
+import sys
+from pathlib import Path
 from typing import Sequence
 
-from . import create_app
+if __package__ in {None, ""}:  # pragma: no cover - runtime convenience branch
+    # Allow ``python Flask/app.py`` to work by ensuring the project root is on
+    # ``sys.path`` before performing the relative import.
+    PROJECT_ROOT = Path(__file__).resolve().parents[1]
+    if str(PROJECT_ROOT) not in sys.path:
+        sys.path.insert(0, str(PROJECT_ROOT))
+    from Flask import create_app as _create_app  # type: ignore[misc]
+else:
+    from . import create_app as _create_app
 
-app = create_app()
+app = _create_app()
 
 
 def main(argv: Sequence[str] | None = None) -> None:
