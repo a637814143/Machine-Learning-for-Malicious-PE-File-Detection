@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Malicious PE Sentinel</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Share+Tech+Mono&display=swap" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/hacker.css') }}" />
+  </head>
+  <body>
+    <div class="scanlines" aria-hidden="true"></div>
+    <header class="hero">
+      <div class="hero__content">
+        <p class="hero__meta">NEURAL MALWARE FORTRESS</p>
+        <h1 class="hero__title" data-glitch="Malicious PE Sentinel">Malicious PE Sentinel</h1>
+        <p class="hero__subtitle">
+          Upload a Portable Executable or reference a server path. Our machine learning sentry mirrors the desktop GUI to classify files with lightning speed.
+        </p>
+        <div class="hero__actions">
+          <button class="btn btn--primary" type="button" data-scroll-target="#analysis-panel">Enter the Matrix</button>
+          <a class="btn btn--secondary" href="https://flask.palletsprojects.com/" target="_blank" rel="noreferrer">Powered by Flask</a>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <section class="grid" aria-label="Service highlights">
+        <article class="grid__card">
+          <h2>Realtime Verdicts</h2>
+          <p>Identical inference logic to the GUI, fortified with GPU-grade numpy acceleration.</p>
+        </article>
+        <article class="grid__card">
+          <h2>Dual Entry Modes</h2>
+          <p>Beam up bytes directly via upload or reference an existing path on the server.</p>
+        </article>
+        <article class="grid__card">
+          <h2>Tunable Sensitivity</h2>
+          <p>Fine-tune the detection threshold to balance aggressiveness and precision.</p>
+        </article>
+      </section>
+
+      <section id="analysis-panel" class="panel">
+        <div class="panel__header">
+          <h2>Interactive Threat Scanner</h2>
+          <p>Select how you'd like to analyse a file, then launch the investigation.</p>
+        </div>
+
+        <form id="analysis-form" class="panel__body">
+          <fieldset class="mode-switch">
+            <legend>Acquisition Channel</legend>
+            <label class="mode-switch__option">
+              <input type="radio" name="mode" value="upload" checked />
+              <span>Upload Binary</span>
+            </label>
+            <label class="mode-switch__option">
+              <input type="radio" name="mode" value="path" />
+              <span>Server Path</span>
+            </label>
+          </fieldset>
+
+          <div class="form-grid">
+            <label class="field" data-field="upload">
+              <span class="field__label">Portable Executable</span>
+              <div class="field__input field__input--file">
+                <input type="file" id="file" name="file" accept=".exe,.dll,.bin,.sys,.scr,.drv,.ocx,.cpl,.msc" />
+                <span class="field__hint">Drag & drop allowed. Max size depends on server limits.</span>
+              </div>
+            </label>
+
+            <label class="field hidden" data-field="path">
+              <span class="field__label">Absolute Path on Server</span>
+              <div class="field__input">
+                <input type="text" id="path" name="path" placeholder="/opt/samples/malicious.exe" autocomplete="off" />
+                <span class="field__hint">Use when the file already resides on the service host.</span>
+              </div>
+            </label>
+
+            <label class="field">
+              <span class="field__label">Detection Threshold</span>
+              <div class="field__input field__input--range">
+                <input type="range" id="threshold" name="threshold" min="0" max="1" step="0.01" value="0.5" />
+                <output id="threshold-value" for="threshold">0.50</output>
+              </div>
+              <span class="field__hint">Lower = more aggressive (higher false positives). Higher = stricter (higher false negatives).</span>
+            </label>
+
+            <label class="field">
+              <span class="field__label">Custom Model (optional)</span>
+              <div class="field__input">
+                <input type="text" id="model_path" name="model_path" placeholder="/models/alt_model.pkl" autocomplete="off" />
+                <span class="field__hint">Leave blank to use the default model shipped with the GUI.</span>
+              </div>
+            </label>
+          </div>
+
+          <div class="panel__footer">
+            <button class="btn btn--primary" type="submit">
+              <span class="btn__glow"></span>
+              Initiate Scan
+            </button>
+            <div class="status" role="status" aria-live="polite">
+              <span class="status__pulse" hidden></span>
+              <span class="status__label">Awaiting command...</span>
+            </div>
+          </div>
+        </form>
+      </section>
+
+      <section class="panel panel--results" aria-live="polite">
+        <div class="panel__header">
+          <h2>Analysis Feed</h2>
+          <p>The classification output is streamed below with neon clarity.</p>
+        </div>
+        <div class="results" id="results">
+          <div class="results__placeholder">No scans yet. Deploy the sentinel to begin.</div>
+        </div>
+      </section>
+
+      <section class="panel panel--logs">
+        <div class="panel__header">
+          <h2>Event Chronicle</h2>
+          <p>See raw request/response pairs for forensic transparency.</p>
+        </div>
+        <ol class="log" id="event-log"></ol>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <p>Machine Learning for Malicious PE File Detection &copy; {{ current_year }}</p>
+      <p class="footer__ascii">&lt;/&gt; Crafted for cyber sentinels.</p>
+    </footer>
+
+    <script src="{{ url_for('static', filename='js/hacker.js') }}" defer></script>
+  </body>
+</html>

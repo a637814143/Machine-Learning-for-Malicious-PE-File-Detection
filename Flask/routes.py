@@ -3,17 +3,31 @@ from __future__ import annotations
 
 import json
 import tempfile
+from datetime import datetime
 from pathlib import Path
 from typing import Any, MutableMapping
 
 import numpy as np
-from flask import Blueprint, Flask, jsonify, request
+from flask import Blueprint, Flask, jsonify, render_template, request
 from werkzeug.datastructures import FileStorage
 from werkzeug.utils import secure_filename
 
 from scripts.D import DEFAULT_THRESHOLD, predict_file_with_features
 
 bp = Blueprint("pe_detection", __name__)
+
+
+def _service_description() -> dict[str, Any]:
+    """Return metadata describing the available HTTP endpoints."""
+
+    return {
+        "service": "Machine Learning PE Detector",
+        "description": "REST API mirroring the GUI's malicious file analysis pipeline.",
+        "endpoints": {
+            "GET /health": "Service heartbeat.",
+            "POST /predict": "Analyse an uploaded PE file or an existing file path.",
+        },
+    }
 
 
 def register_routes(app: Flask) -> None:
@@ -28,18 +42,21 @@ def register_routes(app: Flask) -> None:
 
 @bp.get("/")
 def index() -> Any:
-    """Render a short description with usage hints."""
+    """Serve the neon "hacker" interface or JSON metadata for API clients."""
 
-    return jsonify(
-        {
-            "service": "Machine Learning PE Detector",
-            "description": "REST API mirroring the GUI's malicious file analysis pipeline.",
-            "endpoints": {
-                "GET /health": "Service heartbeat.",
-                "POST /predict": "Analyse an uploaded PE file or an existing file path.",
-            },
-        }
-    )
+    accepts = request.accept_mimetypes
+    wants_json = accepts["application/json"] >= accepts["text/html"] and accepts["application/json"] > 0
+    if wants_json:
+        return jsonify(_service_description())
+
+    return render_template("index.html", current_year=datetime.now().year)
+
+
+@bp.get("/service-info")
+def service_info() -> Any:
+    """Expose endpoint metadata for API discovery tools."""
+
+    return jsonify(_service_description())
 
 
 @bp.get("/health")

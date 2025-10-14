@@ -13,7 +13,12 @@ def create_app() -> Flask:
     integrate the service with deployment tooling.
     """
 
-    app = Flask(__name__)
+    app = Flask(
+        __name__,
+        template_folder="templates",
+        static_folder="static",
+        static_url_path="/static",
+    )
     register_routes(app)
     return app
 

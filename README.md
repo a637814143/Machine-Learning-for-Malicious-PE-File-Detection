@@ -114,11 +114,21 @@ Once started the service exposes the following HTTP endpoints:
 
 | Method | Path       | Description                               |
 |--------|------------|-------------------------------------------|
-| GET    | `/`        | Basic service description and usage hints |
+| GET    | `/`        | Hacker-themed web console (responds with JSON when requested) |
+| GET    | `/service-info` | JSON service description for programmatic discovery |
 | GET    | `/health`  | Health check endpoint                     |
 | POST   | `/predict` | Run the malicious PE detector             |
 
-### 3. Send requests
+### 3. Explore the neon console
+
+Visit [http://127.0.0.1:8000/](http://127.0.0.1:8000/) and you will be greeted by the "Malicious PE Sentinel" interface. The page embraces a cyberpunk aesthetic with animated scanlines, glitch typography, and status indicators. It mirrors all capabilities of the GUI:
+
+- Switch between uploading a binary or referencing a path already present on the server.
+- Tune the detection threshold and provide an alternative model file if desired.
+- Inspect verdicts, confidence values, and the raw JSON payload rendered in real time.
+- Review a chronological event log that records every request/response pair for traceability.
+
+### 4. Send API requests directly
 
 Upload a PE file directly:
 
