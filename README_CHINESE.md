@@ -151,3 +151,14 @@ curl -X POST http://127.0.0.1:8000/predict \
 ```
 
 返回的 JSON 数据与 GUI 中展示的内容一致，包括预测标签、置信度、特征摘要，并额外提供 `report_markdown` 与推荐的 `report_filename` 字段；若发生错误（如文件不存在）也会以 JSON 形式返回，方便与其他系统对接。
+
+### 5. 反向代理部署提示
+
+若在云服务器上通过 Nginx、Apache 等反向代理暴露服务，代理可能会改写 Host、协议或路径头信息，从而触发 Flask 的安全校验导致 `403 Forbidden`。Web 服务默认信任一层代理；若链路上存在多层（例如先经过负载均衡，再到反向代理），可在启动前设置环境变量指定可信跳数：
+
+```bash
+export PE_SENTINEL_TRUSTED_PROXY_HOPS=2
+python -m Flask.app --host 0.0.0.0 --port 8000
+```
+
+服务会自动启用 Flask 的 `ProxyFix` 中间件，正确传递客户端的域名、协议以及路径前缀，确保骇客风界面与 API 能够从公网正常访问。

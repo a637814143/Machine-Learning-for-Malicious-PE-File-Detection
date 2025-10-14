@@ -148,3 +148,14 @@ curl -X POST http://127.0.0.1:8000/predict \
 ```
 
 The JSON response mirrors what the GUI displays, including the predicted label, confidence scores, extracted feature summary, and a `report_markdown` field containing the GUI-equivalent report plus a suggested `report_filename`. Errors (for example missing files) are also returned as JSON to simplify integration with other systems.
+
+### 5. Deploy behind a reverse proxy
+
+When hosting the service behind Nginx, Apache, or another reverse proxy you may see `403 Forbidden` responses if the proxy rewrites the incoming headers. The Flask application now trusts one proxy hop by default. If you have additional layers (for example, a load balancer and a reverse proxy) set the number of trusted hops with an environment variable before launching the service:
+
+```bash
+export PE_SENTINEL_TRUSTED_PROXY_HOPS=2
+python -m Flask.app --host 0.0.0.0 --port 8000
+```
+
+This enables Flask's `ProxyFix` middleware so the correct `Host`, scheme, and path prefix information flows through, keeping the hacker console and API accessible through the public domain.
