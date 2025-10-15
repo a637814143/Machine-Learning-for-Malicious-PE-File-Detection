@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>恶意PE哨兵控制台</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Share+Tech+Mono&display=swap" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/hacker.css') }}" />
+  </head>
+  <body>
+    <div class="scanlines" aria-hidden="true"></div>
+    <header class="hero">
+      <div class="hero__content">
+        <p class="hero__meta">NEURAL MALWARE FORTRESS</p>
+        <h1 class="hero__title" data-glitch="Malicious PE Sentinel">&#8203;</h1>
+        <p class="hero__subtitle">
+          将待检测的可执行文件上传或指定服务器路径，Web 控制台会以与桌面端完全一致的模型逻辑给出恶意判定。
+        </p>
+        <div class="hero__actions">
+          <button class="btn btn--primary" type="button" data-scroll-target="#analysis-panel">开始检测</button>
+          <a class="btn btn--secondary" href="https://flask.palletsprojects.com/" target="_blank" rel="noreferrer">Flask 提供动力</a>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <section class="grid" aria-label="Service highlights">
+        <article class="grid__card">
+          <h2>实时判定</h2>
+          <p>沿用桌面端推理流程，给出同源的恶意/良性结果。</p>
+        </article>
+        <article class="grid__card">
+          <h2>双模式接入</h2>
+          <p>既可上传样本，也可扫描已存在于服务器的文件。</p>
+        </article>
+        <article class="grid__card">
+          <h2>固定基线</h2>
+          <p>服务固定使用 <code>model.txt</code> 模型与 GUI 相同阈值，确保判定一致。</p>
+        </article>
+      </section>
+
+      <section id="analysis-panel" class="panel">
+        <div class="panel__header">
+          <h2>交互式威胁扫描</h2>
+          <p>选择文件来源并启动检测，服务将自动记录检测报告供下载。</p>
+        </div>
+
+        <form id="analysis-form" class="panel__body">
+          <fieldset class="mode-switch">
+            <legend>文件来源</legend>
+            <label class="mode-switch__option">
+              <input type="radio" name="mode" value="upload" checked />
+              <span>上传样本</span>
+            </label>
+            <label class="mode-switch__option">
+              <input type="radio" name="mode" value="path" />
+              <span>服务器路径</span>
+            </label>
+          </fieldset>
+
+          <div class="form-grid">
+            <label class="field" data-field="upload">
+              <span class="field__label">PE 文件</span>
+              <div class="field__input field__input--file">
+                <input type="file" id="file" name="file" accept=".exe,.dll,.bin,.sys,.scr,.drv,.ocx,.cpl,.msc" />
+                <span class="field__hint">支持拖拽上传，具体大小取决于服务器限制。</span>
+              </div>
+            </label>
+
+            <label class="field hidden" data-field="path">
+              <span class="field__label">服务器绝对路径</span>
+              <div class="field__input">
+                <input type="text" id="path" name="path" placeholder="/opt/samples/malicious.exe" autocomplete="off" />
+                <span class="field__hint">当文件已经存在于服务端时使用该选项。</span>
+              </div>
+            </label>
+          </div>
+
+          <p class="panel__note">
+            <strong>说明：</strong> 服务默认加载项目根目录下的 <code>model.txt</code>，恶意判定阈值固定为 <code>GUI</code>保持一致。
+          </p>
+
+          <div class="panel__footer">
+            <button class="btn btn--primary" type="submit">
+              <span class="btn__glow"></span>
+              发起检测
+            </button>
+            <div class="status" role="status" aria-live="polite">
+              <span class="status__pulse" hidden></span>
+              <span class="status__label">等待指令...</span>
+            </div>
+          </div>
+        </form>
+      </section>
+
+      <section class="panel panel--results" aria-live="polite">
+        <div class="panel__header">
+          <h2>检测结果</h2>
+          <p>最新一次扫描会显示在最上方，并可导出 Markdown 报告。</p>
+        </div>
+        <div class="results" id="results">
+          <div class="results__placeholder">尚未开始检测，点击“发起检测”以运行模型。</div>
+        </div>
+      </section>
+
+      <section class="panel panel--logs">
+        <div class="panel__header">
+          <h2>交互日志</h2>
+          <p>记录每次检测的时间与摘要，便于后续追溯。</p>
+        </div>
+        <ol class="log" id="event-log"></ol>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <p>Machine Learning for Malicious PE File Detection &copy; {{ current_year }}</p>
+      <p class="footer__ascii">&lt;/&gt; 为安全研究者打造的赛博面板</p>
+    </footer>
+
+    <script src="{{ url_for('static', filename='js/hacker.js') }}" defer></script>
+  </body>
+</html>
