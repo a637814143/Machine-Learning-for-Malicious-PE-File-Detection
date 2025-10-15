@@ -84,6 +84,90 @@ Graduation-Project-ML-Malicious-PE/
 ---
 
 ## Summary
-This project provides a structured approach for detecting malicious PE files using machine learning.  
-The framework and partial core functionality have been established.  
+This project provides a structured approach for detecting malicious PE files using machine learning.
+The framework and partial core functionality have been established.
 Further development will enable complete malware analysis, prediction, and reporting capabilities.
+
+---
+
+## Flask Web Service Usage
+
+The desktop GUI's malware analysis pipeline is also exposed through a Flask web service so that it can be accessed remotely.
+
+### 1. Install dependencies
+
+```bash
+python -m venv .venv
+source .venv/bin/activate  # On Windows use: .venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+### 2. Start the service
+
+Run the application module directly. Command line arguments let you customise the bind host, port, and debug mode.
+
+```bash
+python -m Flask.app --host 0.0.0.0 --port 8000
+```
+
+For production deployments behind a process manager (systemd, Supervisor, etc.) you can also point your WSGI server at the
+bundled entry point. The module exposes a top-level `application` object that mirrors the CLI configuration, making it
+straightforward to run with tools such as **uWSGI** or **Gunicorn**:
+
+```bash
+# Example uWSGI launch (HTTP for simplicity — adjust parameters to suit your setup)
+uwsgi --http :8000 --wsgi-file Flask/wsgi.py --callable application
+
+# Example Gunicorn launch
+gunicorn Flask.wsgi:application --bind 0.0.0.0:8000
+```
+
+Once started the service exposes the following HTTP endpoints:
+
+| Method | Path       | Description                               |
+|--------|------------|-------------------------------------------|
+| GET    | `/`        | Hacker-themed web console (responds with JSON when requested) |
+| GET    | `/service-info` | JSON service description for programmatic discovery |
+| GET    | `/health`  | Health check endpoint                     |
+| POST   | `/predict` | Run the malicious PE detector             |
+
+### 3. Explore the neon console
+
+Visit [http://127.0.0.1:8000/](http://127.0.0.1:8000/) to enter the neon "Malicious PE Sentinel" console. The interface now focuses on a streamlined Chinese workflow while preserving the cyberpunk look and feel:
+
+- Switch between uploading a binary or referencing a path already present on the server.
+- Rely on the project’s bundled `model.txt` with a fixed decision threshold of `0.0385`, identical to the desktop GUI.
+- View concise verdict summaries and reasoning bullets, then download the complete Markdown report for archival or sharing.
+- Review a chronological event log that captures the detection timestamp and verdict summary for traceability.
+
+### 4. Send API requests directly
+
+Upload a PE file directly:
+
+```bash
+curl -X POST http://127.0.0.1:8000/predict \
+  -F "file=@/path/to/sample.exe"
+```
+
+Analyse a file that already exists on the server:
+
+```bash
+curl -X POST http://127.0.0.1:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{
+        "path": "C:/malware_samples/locked.exe"
+      }'
+```
+
+The JSON response mirrors what the GUI displays, including the predicted label, confidence scores, extracted feature summary, and a `report_markdown` field containing the GUI-equivalent report plus a suggested `report_filename`. Errors (for example missing files) are also returned as JSON to simplify integration with other systems.
+
+### 5. Deploy behind a reverse proxy
+
+When hosting the service behind Nginx, Apache, or another reverse proxy you may see `403 Forbidden` responses if the proxy rewrites the incoming headers. The Flask application now trusts one proxy hop by default. If you have additional layers (for example, a load balancer and a reverse proxy) set the number of trusted hops with an environment variable before launching the service:
+
+```bash
+export PE_SENTINEL_TRUSTED_PROXY_HOPS=2
+python -m Flask.app --host 0.0.0.0 --port 8000
+```
+
+This enables Flask's `ProxyFix` middleware so the correct `Host`, scheme, and path prefix information flows through, keeping the hacker console and API accessible through the public domain.
