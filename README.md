@@ -84,6 +84,32 @@ Graduation-Project-ML-Malicious-PE/
 ---
 
 ## Summary
-This project provides a structured approach for detecting malicious PE files using machine learning.  
-The framework and partial core functionality have been established.  
+This project provides a structured approach for detecting malicious PE files using machine learning.
+The framework and partial core functionality have been established.
 Further development will enable complete malware analysis, prediction, and reporting capabilities.
+
+## Deploying the Flask service with BaoTa's WSGI mode
+
+The repository ships with a lightweight Flask API inside the `Flask/` package. If
+you manage your server with the BaoTa (宝塔) panel, you can deploy this service
+through its Python project manager by pointing the form fields to the files in
+this repository. The table below shows the recommended values; adapt the paths
+and domain to match your own server layout.
+
+| Field in BaoTa                          | Value / Description                                                    |
+|----------------------------------------|------------------------------------------------------------------------|
+| **项目名称** / Project name             | Any identifier you prefer, e.g. `machine`                              |
+| **域名** / Domain                       | Your public domain or server IP, e.g. `ml-pe.example.com`               |
+| **端口** / Port                         | A free TCP port, e.g. `6000` (ensure the security group/firewall allows it) |
+| **Python版本** / Python version        | Python 3.10 or newer (matches `requirements.txt`)                      |
+| **项目路径** / Project path             | Absolute path to this repository, e.g. `/www/wwwroot/machine`          |
+| **运行目录** / Working directory        | Same as the project path                                               |
+| **启动方式** / Start method             | Select `wsgi`                                                          |
+| **执行文件** / Entry file               | `Flask/wsgi.py`                                                        |
+| **启动用户** / Run as user              | `root` or a dedicated service account with read permission             |
+| **是否安装依赖** / Install requirements | Enable automatic installation and point to `requirements.txt`          |
+
+Once saved, BaoTa will create an isolated virtual environment, install the
+dependencies, and start the WSGI service using the `application` object exposed
+in `Flask/wsgi.py`. You can later manage (start/stop/restart) the service from
+the BaoTa interface.
