@@ -5,8 +5,34 @@
 """
 
 import sys
+from importlib import util as _importlib_util
+from pathlib import Path
+
+# ``python app/main.py`` executes this file as a script which means Python only
+# places the ``app`` directory (not its parent) on ``sys.path``.  When that
+# happens, attempting to import ``app`` as a package fails.  To make the entry
+# point robust we manually bootstrap the package using the file system location
+# and register it in ``sys.modules`` before any other imports execute.
+_PACKAGE_NAME = "app"
+_PACKAGE_DIR = Path(__file__).resolve().parent
+_PROJECT_ROOT = _PACKAGE_DIR.parent
+
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
+if _PACKAGE_NAME not in sys.modules:
+    _spec = _importlib_util.spec_from_file_location(
+        _PACKAGE_NAME,
+        _PACKAGE_DIR / "__init__.py",
+        submodule_search_locations=[str(_PACKAGE_DIR)],
+    )
+    if _spec and _spec.loader:
+        _module = _importlib_util.module_from_spec(_spec)
+        sys.modules[_PACKAGE_NAME] = _module
+        _spec.loader.exec_module(_module)
+
 from PyQt5 import QtWidgets
-from ui.main_window import MachineLearningPEUI
+from app.ui.main_window import MachineLearningPEUI
 from scripts.ROOT_PATH import ROOT
 from random import randint
 from core.utils.logger import set_log
