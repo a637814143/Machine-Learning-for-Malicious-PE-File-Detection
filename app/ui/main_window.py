@@ -15,6 +15,38 @@ from scripts.FILE_NAME import GET_TIME
 from scripts.D import predict_file_with_features
 
 
+class LogViewerDialog(QtWidgets.QDialog):
+    """显示日志内容的对话框。"""
+
+    def __init__(self, parent, log_info: dict, lines: list[str]):
+        super().__init__(parent)
+        self.setWindowTitle(f"查看日志 - {log_info.get('name', '')}")
+        self.resize(760, 520)
+
+        layout = QtWidgets.QVBoxLayout(self)
+
+        meta_label = QtWidgets.QLabel(
+            "\n".join(
+                [
+                    f"文件: {log_info.get('path', '未知')}",
+                    f"大小: {log_info.get('size', '未知')}\t更新时间: {log_info.get('modified', '未知')}",
+                ]
+            ),
+            self,
+        )
+        meta_label.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
+        layout.addWidget(meta_label)
+
+        text_edit = QtWidgets.QPlainTextEdit(self)
+        text_edit.setReadOnly(True)
+        text_edit.setPlainText("".join(lines))
+        layout.addWidget(text_edit)
+
+        button_box = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Close, parent=self)
+        button_box.rejected.connect(self.reject)
+        layout.addWidget(button_box)
+
+
 class MachineLearningPEUI(QtWidgets.QDialog):
     """基于机器学习的恶意PE文件检测系统主窗口"""
 
@@ -447,7 +479,43 @@ class MachineLearningPEUI(QtWidgets.QDialog):
 
     def view_logs(self):
         """查看日志"""
-        self._append_result_text("查看日志：占位（未实现）")
+        logs = self.report_manager.get_available_logs()
+        if not logs:
+            QtWidgets.QMessageBox.information(self, "查看日志", "未找到可用日志。")
+            self._append_result_text("未找到可用日志。")
+            return
+
+        selected_log = logs[0]
+        if len(logs) > 1:
+            items = [f"{entry['name']} ({entry['modified']})" for entry in logs]
+            choice, ok = QtWidgets.QInputDialog.getItem(
+                self,
+                "选择日志",
+                "请选择要查看的日志：",
+                items,
+                0,
+                False,
+            )
+            if not ok:
+                return
+            try:
+                idx = items.index(choice)
+                selected_log = logs[idx]
+            except ValueError:
+                selected_log = logs[0]
+
+        lines = self.report_manager.view_logs(selected_log["name"], max_lines=500)
+        if lines is None:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "查看日志",
+                f"无法读取日志文件: {selected_log['name']}",
+            )
+            return
+
+        dialog = LogViewerDialog(self, selected_log, lines)
+        dialog.exec_()
+        self._append_result_text(f"已打开日志: {selected_log['name']}")
 
     def clear_result_text(self):
         """清空文件信息展示区"""
