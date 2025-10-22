@@ -163,11 +163,42 @@ QPushButton[variant="secondary"]:pressed {
     background-color: rgba(0, 122, 255, 0.26);
 }
 
+QPushButton[variant="ghost"] {
+    background-color: rgba(0, 0, 0, 0.04);
+    color: #007aff;
+    border: 1px solid rgba(0, 122, 255, 0.16);
+    padding: 8px 18px;
+}
+
+QPushButton[variant="ghost"]:hover {
+    background-color: rgba(0, 122, 255, 0.12);
+}
+
+QPushButton[variant="ghost"]:pressed {
+    background-color: rgba(0, 122, 255, 0.2);
+}
+
+QFrame#ProgressRow {
+    background-color: rgba(255, 255, 255, 0.68);
+    border-radius: 20px;
+    border: 1px solid rgba(120, 120, 128, 0.12);
+}
+
+QFrame#ProgressRow:hover {
+    background-color: rgba(255, 255, 255, 0.82);
+    border: 1px solid rgba(0, 122, 255, 0.28);
+}
+
+QFrame#ProgressRow QLabel#TaskLabel {
+    font-weight: 600;
+    color: #1d1d1f;
+}
+
 QProgressBar {
     background-color: rgba(210, 210, 215, 0.45);
     border-radius: 12px;
     border: none;
-    min-height: 12px;
+    min-height: 16px;
 }
 
 QProgressBar::chunk {

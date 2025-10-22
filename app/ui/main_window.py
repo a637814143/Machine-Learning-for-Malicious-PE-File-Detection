@@ -163,84 +163,66 @@ class MachineLearningPEUI(QtWidgets.QDialog):
         sidebar_layout.setContentsMargins(28, 28, 28, 28)
         sidebar_layout.setSpacing(18)
 
-        progress_header = QtWidgets.QLabel("任务进度", sidebar_card)
+        progress_header = QtWidgets.QLabel("任务控制中心", sidebar_card)
         progress_header.setObjectName("SectionTitle")
         sidebar_layout.addWidget(progress_header)
 
-        progress_grid = QtWidgets.QGridLayout()
-        progress_grid.setContentsMargins(0, 0, 0, 0)
-        progress_grid.setHorizontalSpacing(12)
-        progress_grid.setVerticalSpacing(12)
+        tasks_container = QtWidgets.QWidget(sidebar_card)
+        tasks_layout = QtWidgets.QVBoxLayout(tasks_container)
+        tasks_layout.setContentsMargins(0, 0, 0, 0)
+        tasks_layout.setSpacing(12)
 
-        progress_items = [
-            ("文件信息", "progress_file_info"),
-            ("数据清洗", "progress_data_cleaning"),
-            ("提取特征", "progress_extract_feature"),
-            ("特征转换", "progress_feature_transform"),
-            ("训练模型", "progress_train_model"),
-            ("测试模型", "progress_test_model"),
-            ("模型预测", "progress_model_predict"),
-            ("获取良性", "progress_get_benign"),
-            ("沙箱检测", "progress_sandbox"),
-            ("安装依赖", "progress_install_deps"),
+        task_specs = [
+            ("文件信息", "progress_file_info", "btn_file_info"),
+            ("数据清洗", "progress_data_cleaning", "btn_data_cleaning"),
+            ("提取特征", "progress_extract_feature", "btn_extract_feature"),
+            ("特征转换", "progress_feature_transform", "btn_feature_transform"),
+            ("训练模型", "progress_train_model", "btn_model_train"),
+            ("测试模型", "progress_test_model", "btn_model_test"),
+            ("模型预测", "progress_model_predict", "btn_model_predict"),
+            ("获取良性", "progress_get_benign", "btn_get_benign"),
+            ("沙箱检测", "progress_sandbox", "btn_sandbox"),
+            ("安装依赖", "progress_install_deps", "btn_install_deps"),
         ]
 
         self.progressBars = {}
-        for row, (label_text, attr_name) in enumerate(progress_items):
-            label = QtWidgets.QLabel(label_text, sidebar_card)
-            label.setObjectName("CaptionLabel")
-            progress = QtWidgets.QProgressBar(sidebar_card)
+        self.button_task_map = {}
+        for label_text, progress_attr, button_attr in task_specs:
+            row_frame = QtWidgets.QFrame(tasks_container)
+            row_frame.setObjectName("ProgressRow")
+            row_layout = QtWidgets.QHBoxLayout(row_frame)
+            row_layout.setContentsMargins(20, 14, 20, 14)
+            row_layout.setSpacing(16)
+
+            label = QtWidgets.QLabel(label_text, row_frame)
+            label.setObjectName("TaskLabel")
+            label.setMinimumWidth(88)
+
+            progress = QtWidgets.QProgressBar(row_frame)
             progress.setObjectName("ProgressBar")
             progress.setMinimum(0)
             progress.setMaximum(100)
             progress.setValue(0)
             progress.setTextVisible(False)
+            progress.setFixedHeight(16)
 
-            progress_grid.addWidget(label, row, 0)
-            progress_grid.addWidget(progress, row, 1)
+            button = QtWidgets.QPushButton(label_text, row_frame)
+            button.setMinimumHeight(36)
+            button.setProperty("variant", "ghost")
 
-            setattr(self, attr_name, progress)
+            row_layout.addWidget(label)
+            row_layout.addWidget(progress, 1)
+            row_layout.addWidget(button)
+
+            tasks_layout.addWidget(row_frame)
+
+            setattr(self, progress_attr, progress)
+            setattr(self, button_attr, button)
             self.progressBars[label_text] = progress
+            self.button_task_map[button] = label_text
 
-        progress_grid.setColumnStretch(0, 0)
-        progress_grid.setColumnStretch(1, 1)
-        sidebar_layout.addLayout(progress_grid)
-
-        function_header = QtWidgets.QLabel("快速操作", sidebar_card)
-        function_header.setObjectName("SectionTitle")
-        sidebar_layout.addWidget(function_header)
-
-        buttons_grid = QtWidgets.QGridLayout()
-        buttons_grid.setContentsMargins(0, 0, 0, 0)
-        buttons_grid.setHorizontalSpacing(12)
-        buttons_grid.setVerticalSpacing(12)
-
-        button_specs = [
-            ("文件信息", "btn_file_info"),
-            ("数据清洗", "btn_data_cleaning"),
-            ("提取特征", "btn_extract_feature"),
-            ("特征转换", "btn_feature_transform"),
-            ("模型训练", "btn_model_train"),
-            ("测试模型", "btn_model_test"),
-            ("模型预测", "btn_model_predict"),
-            ("获取良性", "btn_get_benign"),
-            ("沙箱检测", "btn_sandbox"),
-            ("安装依赖", "btn_install_deps"),
-        ]
-
-        self.button_task_map = {}
-        for index, (text, attr) in enumerate(button_specs):
-            button = QtWidgets.QPushButton(text, sidebar_card)
-            button.setMinimumHeight(44)
-            row = index // 2
-            column = index % 2
-            buttons_grid.addWidget(button, row, column)
-            setattr(self, attr, button)
-            self.button_task_map[button] = text
-
-        buttons_grid.setColumnStretch(0, 1)
-        buttons_grid.setColumnStretch(1, 1)
-        sidebar_layout.addLayout(buttons_grid)
+        tasks_layout.addStretch(1)
+        sidebar_layout.addWidget(tasks_container)
 
         thread_layout = QtWidgets.QHBoxLayout()
         thread_layout.setSpacing(12)
