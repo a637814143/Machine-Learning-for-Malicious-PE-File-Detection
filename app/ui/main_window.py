@@ -1,11 +1,9 @@
-
-# app/ui/main_window.py
-
 from datetime import datetime
 from pathlib import Path
 
-from PyQt5 import QtCore, QtWidgets
+from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtWidgets import QFileDialog
+
 from .progress_dialog import Worker
 from .report_view import ReportManager
 from scripts.GET_B import BenignResourceDialog
@@ -28,262 +26,292 @@ class MachineLearningPEUI(QtWidgets.QDialog):
 
     def setupUi(self):
         """设置用户界面"""
-        self.setObjectName("Dialog")
-        self.resize(1400, 860)
+        self.setObjectName("MainDialog")
+        self.resize(1280, 840)
+        self.setMinimumSize(1120, 720)
+        self.setWindowTitle("基于机器学习的恶意PE文件检测系统")
+        self.setWindowFlags(self.windowFlags() & ~QtCore.Qt.WindowContextHelpButtonHint)
+        self.setAttribute(QtCore.Qt.WA_StyledBackground, True)
 
-        # --- 输入与选择 ---
-        self._setup_input_output_section()
+        self.mainLayout = QtWidgets.QVBoxLayout(self)
+        self.mainLayout.setContentsMargins(24, 24, 24, 24)
+        self.mainLayout.setSpacing(18)
 
-        # --- 主输出区 ---
-        self._setup_main_output_section()
-
-        # --- 顶部标题 ---
         self._setup_title_section()
-
-        # --- 右侧进度条区域 ---
-        self._setup_progress_section()
-
-        # --- 右侧功能按钮 ---
-        self._setup_function_buttons()
-
-        # --- 底部区域 ---
-        self._setup_bottom_section()
-
-        # --- 中间标签 ---
-        self._setup_middle_labels()
-
-        # --- 绑定事件 ---
+        self._setup_input_output_section()
+        self._setup_center_section()
+        self._setup_footer_section()
         self._bind_events()
+
+    # --- 现代化界面分区构建 ---
+    def _setup_title_section(self):
+        """设置标题区域"""
+        title_card = QtWidgets.QFrame(self)
+        title_card.setObjectName("Card")
+        title_layout = QtWidgets.QVBoxLayout(title_card)
+        title_layout.setContentsMargins(32, 28, 32, 32)
+        title_layout.setSpacing(6)
+
+        title_label = QtWidgets.QLabel("基于机器学习的恶意PE文件检测系统", title_card)
+        title_label.setObjectName("TitleLabel")
+        title_label.setAlignment(QtCore.Qt.AlignCenter)
+        title_label.setWordWrap(True)
+
+        subtitle_label = QtWidgets.QLabel("Malicious Portable Executable Analyzer", title_card)
+        subtitle_label.setObjectName("SubtitleLabel")
+        subtitle_label.setAlignment(QtCore.Qt.AlignCenter)
+        subtitle_label.setWordWrap(True)
+
+        title_layout.addWidget(title_label)
+        title_layout.addWidget(subtitle_label)
+
+        self.mainLayout.addWidget(title_card)
+        self.titleLabel = title_label
+        self.subtitleLabel = subtitle_label
 
     def _setup_input_output_section(self):
         """设置输入输出区域"""
-        # 输入输出文本框
-        self.inputLineEdit = QtWidgets.QLineEdit(self)
-        self.inputLineEdit.setGeometry(QtCore.QRect(20, 160, 851, 31))
-        self.inputLineEdit.setObjectName("inputLineEdit")
+        io_card = QtWidgets.QFrame(self)
+        io_card.setObjectName("Card")
+        io_layout = QtWidgets.QGridLayout(io_card)
+        io_layout.setContentsMargins(28, 24, 28, 24)
+        io_layout.setHorizontalSpacing(16)
+        io_layout.setVerticalSpacing(12)
 
-        self.outputLineEdit = QtWidgets.QLineEdit(self)
-        self.outputLineEdit.setGeometry(QtCore.QRect(20, 200, 851, 31))
-        self.outputLineEdit.setObjectName("outputLineEdit")
+        input_label = QtWidgets.QLabel("输入路径", io_card)
+        input_label.setObjectName("CaptionLabel")
+        io_layout.addWidget(input_label, 0, 0)
 
-        # 选择按钮
-        self.selectInputButton = QtWidgets.QPushButton("选择文件(夹)", self)
-        self.selectInputButton.setGeometry(QtCore.QRect(890, 160, 121, 31))
-        self.selectInputButton.setObjectName("selectInputButton")
+        self.inputLineEdit = QtWidgets.QLineEdit(io_card)
+        self.inputLineEdit.setPlaceholderText("选择需要分析的文件或文件夹…")
+        io_layout.addWidget(self.inputLineEdit, 0, 1)
 
-        self.selectOutputButton = QtWidgets.QPushButton("选择文件(夹)", self)
-        self.selectOutputButton.setGeometry(QtCore.QRect(890, 200, 121, 31))
-        self.selectOutputButton.setObjectName("selectOutputButton")
+        self.selectInputButton = QtWidgets.QPushButton("选择", io_card)
+        self.selectInputButton.setProperty("variant", "secondary")
+        io_layout.addWidget(self.selectInputButton, 0, 2)
 
-        # 复选框
-        self.useInputCheckBox = QtWidgets.QCheckBox("使用输入", self)
-        self.useInputCheckBox.setGeometry(QtCore.QRect(1030, 160, 91, 31))
-        self.useInputCheckBox.setObjectName("useInputCheckBox")
+        self.useInputCheckBox = QtWidgets.QCheckBox("使用", io_card)
+        io_layout.addWidget(self.useInputCheckBox, 0, 3)
 
-        self.useOutputCheckBox = QtWidgets.QCheckBox("使用输出", self)
-        self.useOutputCheckBox.setGeometry(QtCore.QRect(1030, 200, 91, 31))
-        self.useOutputCheckBox.setObjectName("useOutputCheckBox")
+        output_label = QtWidgets.QLabel("输出路径", io_card)
+        output_label.setObjectName("CaptionLabel")
+        io_layout.addWidget(output_label, 1, 0)
 
-    def _setup_main_output_section(self):
-        """设置主输出区域"""
-        self.resultTextBrowser = QtWidgets.QTextBrowser(self)
-        self.resultTextBrowser.setGeometry(QtCore.QRect(20, 290, 851, 551))
-        self.resultTextBrowser.setObjectName("resultTextBrowser")
+        self.outputLineEdit = QtWidgets.QLineEdit(io_card)
+        self.outputLineEdit.setPlaceholderText("选择保存结果的文件夹…")
+        io_layout.addWidget(self.outputLineEdit, 1, 1)
 
-    def _setup_title_section(self):
-        """设置标题区域"""
-        self.titleTextBrowser = QtWidgets.QTextBrowser(self)
-        self.titleTextBrowser.setGeometry(QtCore.QRect(20, 20, 1361, 111))
-        self.titleTextBrowser.setHtml(
-            "<p align='center'><span style=' font-size:48pt; font-weight:600; color:#0000ff;'>"
-            "基于机器学习的恶意PE文件检测系统</span></p>"
-        )
+        self.selectOutputButton = QtWidgets.QPushButton("选择", io_card)
+        self.selectOutputButton.setProperty("variant", "secondary")
+        io_layout.addWidget(self.selectOutputButton, 1, 2)
 
-    def _setup_progress_section(self):
-        """设置进度条区域"""
-        # 标签
-        self.lbl_file_info = QtWidgets.QLabel("文件信息", self)
-        self.lbl_file_info.setGeometry(890, 300, 85, 25)
+        self.useOutputCheckBox = QtWidgets.QCheckBox("使用", io_card)
+        io_layout.addWidget(self.useOutputCheckBox, 1, 3)
 
-        self.lbl_data_cleaning = QtWidgets.QLabel("数据清洗", self)
-        self.lbl_data_cleaning.setGeometry(890, 340, 85, 25)
+        io_layout.setColumnStretch(1, 1)
+        io_layout.setColumnStretch(2, 0)
+        io_layout.setColumnStretch(3, 0)
 
-        self.lbl_extract_feature = QtWidgets.QLabel("提取特征", self)
-        self.lbl_extract_feature.setGeometry(890, 380, 85, 25)
+        self.mainLayout.addWidget(io_card)
 
-        self.lbl_feature_transform = QtWidgets.QLabel("特征转换", self)
-        self.lbl_feature_transform.setGeometry(890, 420, 85, 25)
+    def _setup_center_section(self):
+        """设置主内容区域"""
+        content_layout = QtWidgets.QHBoxLayout()
+        content_layout.setSpacing(18)
 
-        self.lbl_train_model = QtWidgets.QLabel("训练模型", self)
-        self.lbl_train_model.setGeometry(890, 460, 85, 25)
+        # 左侧：运行结果
+        result_card = QtWidgets.QFrame(self)
+        result_card.setObjectName("Card")
+        result_layout = QtWidgets.QVBoxLayout(result_card)
+        result_layout.setContentsMargins(28, 28, 28, 28)
+        result_layout.setSpacing(18)
 
-        self.lbl_test_model = QtWidgets.QLabel("测试模型", self)
-        self.lbl_test_model.setGeometry(890, 500, 85, 25)
+        result_header = QtWidgets.QLabel("运行结果", result_card)
+        result_header.setObjectName("SectionTitle")
+        result_layout.addWidget(result_header)
 
-        self.lbl_model_predict = QtWidgets.QLabel("模型预测", self)
-        self.lbl_model_predict.setGeometry(890, 540, 85, 25)
+        self.resultTextBrowser = QtWidgets.QTextBrowser(result_card)
+        self.resultTextBrowser.setObjectName("PrimaryTextBrowser")
+        self.resultTextBrowser.setFrameShape(QtWidgets.QFrame.NoFrame)
+        self.resultTextBrowser.setOpenExternalLinks(True)
+        result_layout.addWidget(self.resultTextBrowser, 1)
 
-        self.lbl_get_benign = QtWidgets.QLabel("获取良性", self)
-        self.lbl_get_benign.setGeometry(890, 580, 85, 25)
+        action_row = QtWidgets.QHBoxLayout()
+        action_row.setSpacing(12)
 
-        self.lbl_sandbox = QtWidgets.QLabel("沙箱检测", self)
-        self.lbl_sandbox.setGeometry(890, 620, 85, 25)
+        self.btn_download_report = QtWidgets.QPushButton("下载报告", result_card)
+        self.btn_download_report.setMinimumHeight(44)
+        self.btn_view_logs = QtWidgets.QPushButton("查看日志", result_card)
+        self.btn_view_logs.setProperty("variant", "secondary")
+        self.btn_view_logs.setMinimumHeight(44)
+        self.btn_clear_text = QtWidgets.QPushButton("清空文本", result_card)
+        self.btn_clear_text.setProperty("variant", "secondary")
+        self.btn_clear_text.setMinimumHeight(44)
 
-        self.lbl_install_deps = QtWidgets.QLabel("安装依赖", self)
-        self.lbl_install_deps.setGeometry(890, 660, 85, 25)
+        action_row.addWidget(self.btn_download_report)
+        action_row.addWidget(self.btn_view_logs)
+        action_row.addWidget(self.btn_clear_text)
 
-        # 进度条
-        self.progress_file_info = QtWidgets.QProgressBar(self)
-        self.progress_file_info.setGeometry(985, 300, 245, 25)
-        self.progress_file_info.setValue(0)
+        result_layout.addLayout(action_row)
 
-        self.progress_data_cleaning = QtWidgets.QProgressBar(self)
-        self.progress_data_cleaning.setGeometry(985, 340, 245, 25)
-        self.progress_data_cleaning.setValue(0)
+        content_layout.addWidget(result_card, 2)
 
-        self.progress_extract_feature = QtWidgets.QProgressBar(self)
-        self.progress_extract_feature.setGeometry(985, 380, 245, 25)
-        self.progress_extract_feature.setValue(0)
+        # 右侧：进度与功能
+        sidebar_card = QtWidgets.QFrame(self)
+        sidebar_card.setObjectName("Card")
+        sidebar_layout = QtWidgets.QVBoxLayout(sidebar_card)
+        sidebar_layout.setContentsMargins(28, 28, 28, 28)
+        sidebar_layout.setSpacing(18)
 
-        self.progress_feature_transform = QtWidgets.QProgressBar(self)
-        self.progress_feature_transform.setGeometry(985, 420, 245, 25)
-        self.progress_feature_transform.setValue(0)
+        progress_header = QtWidgets.QLabel("任务进度", sidebar_card)
+        progress_header.setObjectName("SectionTitle")
+        sidebar_layout.addWidget(progress_header)
 
-        self.progress_train_model = QtWidgets.QProgressBar(self)
-        self.progress_train_model.setGeometry(985, 460, 245, 25)
-        self.progress_train_model.setValue(0)
+        progress_grid = QtWidgets.QGridLayout()
+        progress_grid.setContentsMargins(0, 0, 0, 0)
+        progress_grid.setHorizontalSpacing(12)
+        progress_grid.setVerticalSpacing(12)
 
-        self.progress_test_model = QtWidgets.QProgressBar(self)
-        self.progress_test_model.setGeometry(985, 500, 245, 25)
-        self.progress_test_model.setValue(0)
+        progress_items = [
+            ("文件信息", "progress_file_info"),
+            ("数据清洗", "progress_data_cleaning"),
+            ("提取特征", "progress_extract_feature"),
+            ("特征转换", "progress_feature_transform"),
+            ("训练模型", "progress_train_model"),
+            ("测试模型", "progress_test_model"),
+            ("模型预测", "progress_model_predict"),
+            ("获取良性", "progress_get_benign"),
+            ("沙箱检测", "progress_sandbox"),
+            ("安装依赖", "progress_install_deps"),
+        ]
 
-        self.progress_model_predict = QtWidgets.QProgressBar(self)
-        self.progress_model_predict.setGeometry(985, 540, 245, 25)
-        self.progress_model_predict.setValue(0)
+        self.progressBars = {}
+        for row, (label_text, attr_name) in enumerate(progress_items):
+            label = QtWidgets.QLabel(label_text, sidebar_card)
+            label.setObjectName("CaptionLabel")
+            progress = QtWidgets.QProgressBar(sidebar_card)
+            progress.setObjectName("ProgressBar")
+            progress.setMinimum(0)
+            progress.setMaximum(100)
+            progress.setValue(0)
+            progress.setTextVisible(False)
 
-        self.progress_get_benign = QtWidgets.QProgressBar(self)
-        self.progress_get_benign.setGeometry(985, 580, 245, 25)
-        self.progress_get_benign.setValue(0)
+            progress_grid.addWidget(label, row, 0)
+            progress_grid.addWidget(progress, row, 1)
 
-        self.progress_sandbox = QtWidgets.QProgressBar(self)
-        self.progress_sandbox.setGeometry(985, 620, 245, 25)
-        self.progress_sandbox.setValue(0)
+            setattr(self, attr_name, progress)
+            self.progressBars[label_text] = progress
 
-        self.progress_install_deps = QtWidgets.QProgressBar(self)
-        self.progress_install_deps.setGeometry(985, 660, 245, 25)
-        self.progress_install_deps.setValue(0)
+        progress_grid.setColumnStretch(0, 0)
+        progress_grid.setColumnStretch(1, 1)
+        sidebar_layout.addLayout(progress_grid)
 
-        # 进度条映射
-        self.progressBars = {
-            "文件信息": self.progress_file_info,
-            "数据清洗": self.progress_data_cleaning,
-            "提取特征": self.progress_extract_feature,
-            "特征转换": self.progress_feature_transform,
-            "训练模型": self.progress_train_model,
-            "测试模型": self.progress_test_model,
-            "模型预测": self.progress_model_predict,
-            "获取良性": self.progress_get_benign,
-            "沙箱检测": self.progress_sandbox,
-            "安装依赖": self.progress_install_deps,
-        }
+        function_header = QtWidgets.QLabel("快速操作", sidebar_card)
+        function_header.setObjectName("SectionTitle")
+        sidebar_layout.addWidget(function_header)
 
-    def _setup_function_buttons(self):
-        """设置功能按钮"""
-        # 右侧功能按钮
-        self.btn_file_info = QtWidgets.QPushButton("文件信息", self)
-        self.btn_file_info.setGeometry(1250, 160, 131, 41)
+        buttons_grid = QtWidgets.QGridLayout()
+        buttons_grid.setContentsMargins(0, 0, 0, 0)
+        buttons_grid.setHorizontalSpacing(12)
+        buttons_grid.setVerticalSpacing(12)
 
-        self.btn_data_cleaning = QtWidgets.QPushButton("数据清洗", self)
-        self.btn_data_cleaning.setGeometry(1250, 210, 131, 41)
+        button_specs = [
+            ("文件信息", "btn_file_info"),
+            ("数据清洗", "btn_data_cleaning"),
+            ("提取特征", "btn_extract_feature"),
+            ("特征转换", "btn_feature_transform"),
+            ("模型训练", "btn_model_train"),
+            ("测试模型", "btn_model_test"),
+            ("模型预测", "btn_model_predict"),
+            ("获取良性", "btn_get_benign"),
+            ("沙箱检测", "btn_sandbox"),
+            ("安装依赖", "btn_install_deps"),
+        ]
 
-        self.btn_extract_feature = QtWidgets.QPushButton("提取特征", self)
-        self.btn_extract_feature.setGeometry(1250, 260, 131, 41)
+        self.button_task_map = {}
+        for index, (text, attr) in enumerate(button_specs):
+            button = QtWidgets.QPushButton(text, sidebar_card)
+            button.setMinimumHeight(44)
+            row = index // 2
+            column = index % 2
+            buttons_grid.addWidget(button, row, column)
+            setattr(self, attr, button)
+            self.button_task_map[button] = text
 
-        self.btn_feature_transform = QtWidgets.QPushButton("特征转换", self)
-        self.btn_feature_transform.setGeometry(1250, 310, 131, 41)
+        buttons_grid.setColumnStretch(0, 1)
+        buttons_grid.setColumnStretch(1, 1)
+        sidebar_layout.addLayout(buttons_grid)
 
-        self.btn_model_train = QtWidgets.QPushButton("模型训练", self)
-        self.btn_model_train.setGeometry(1250, 360, 131, 41)
+        thread_layout = QtWidgets.QHBoxLayout()
+        thread_layout.setSpacing(12)
 
-        self.btn_model_test = QtWidgets.QPushButton("测试模型", self)
-        self.btn_model_test.setGeometry(1250, 410, 131, 41)
-
-        self.btn_model_predict = QtWidgets.QPushButton("模型预测", self)
-        self.btn_model_predict.setGeometry(1250, 460, 131, 41)
-
-        self.btn_get_benign = QtWidgets.QPushButton("获取良性", self)
-        self.btn_get_benign.setGeometry(1250, 510, 131, 41)
-
-        self.btn_sandbox = QtWidgets.QPushButton("沙箱检测", self)
-        self.btn_sandbox.setGeometry(1250, 560, 131, 41)
-
-        self.btn_install_deps = QtWidgets.QPushButton("安装依赖", self)
-        self.btn_install_deps.setGeometry(1250, 610, 131, 41)
-
-        # 按钮任务映射
-        self.button_task_map = {
-            self.btn_file_info: "文件信息",
-            self.btn_data_cleaning: "数据清洗",
-            self.btn_extract_feature: "提取特征",
-            self.btn_feature_transform: "特征转换",
-            self.btn_model_train: "训练模型",
-            self.btn_model_test: "测试模型",
-            self.btn_model_predict: "模型预测",
-            self.btn_get_benign: "获取良性",
-            self.btn_sandbox: "沙箱检测",
-            self.btn_install_deps: "安装依赖",
-        }
-
-    def _setup_bottom_section(self):
-        """设置底部区域"""
-        # 中下部按钮
-        self.btn_download_report = QtWidgets.QPushButton("下载报告", self)
-        self.btn_download_report.setGeometry(890, 695, 160, 35)
-
-        self.btn_view_logs = QtWidgets.QPushButton("查看日志", self)
-        self.btn_view_logs.setGeometry(1060, 695, 160, 35)
-
-        self.btn_clear_text = QtWidgets.QPushButton("清空文本展示区", self)
-        self.btn_clear_text.setGeometry(1230, 695, 161, 35)
-
-        # 底部信息
-        self.infoTextBrowser = QtWidgets.QTextBrowser(self)
-        self.infoTextBrowser.setGeometry(890, 740, 341, 101)
-        self.infoTextBrowser.setHtml(
-            "<p>大理大学 @2025<br/>数学与计算机学院 22级 信息安全班 蒋添麒<br/>"
-            "Github Address:<br/>https://github.com/a637814143/Machine-Learning-for-Mailcious-PE-File-Detection</p>"
-        )
-
-        # 线程数配置
-        self.threadCountLabel = QtWidgets.QLabel("线程数:", self)
-        self.threadCountLabel.setGeometry(1245, 810, 60, 21)
-
-        self.threadCountSpinBox = QtWidgets.QSpinBox(self)
-        self.threadCountSpinBox.setGeometry(1305, 810, 80, 21)
+        self.threadCountLabel = QtWidgets.QLabel("线程数", sidebar_card)
+        self.threadCountLabel.setObjectName("CaptionLabel")
+        self.threadCountSpinBox = QtWidgets.QSpinBox(sidebar_card)
         self.threadCountSpinBox.setMinimum(1)
         self.threadCountSpinBox.setMaximum(100)
-        self.threadCountSpinBox.setValue(4)  # 默认4个线程
+        self.threadCountSpinBox.setValue(4)
         self.threadCountSpinBox.setToolTip("设置特征提取使用的线程数（1-16）")
 
-    def _setup_middle_labels(self):
-        """设置中间标签"""
-        self.middleLabel_result = QtWidgets.QLabel("运行结果区", self)
-        self.middleLabel_result.setGeometry(400, 250, 111, 21)
+        thread_layout.addWidget(self.threadCountLabel)
+        thread_layout.addWidget(self.threadCountSpinBox)
+        thread_layout.addStretch(1)
 
-        self.middleLabel_progress = QtWidgets.QLabel("进度展示区", self)
-        self.middleLabel_progress.setGeometry(1010, 250, 111, 21)
+        sidebar_layout.addLayout(thread_layout)
+        sidebar_layout.addStretch(1)
+
+        content_layout.addWidget(sidebar_card, 1)
+
+        self.mainLayout.addLayout(content_layout, 1)
+
+        # 设置交互控件的指针样式
+        interactive_widgets = [
+            self.selectInputButton,
+            self.selectOutputButton,
+            self.useInputCheckBox,
+            self.useOutputCheckBox,
+            self.btn_download_report,
+            self.btn_view_logs,
+            self.btn_clear_text,
+            *self.button_task_map.keys(),
+        ]
+        pointing_cursor = QtGui.QCursor(QtCore.Qt.PointingHandCursor)
+        for widget in interactive_widgets:
+            widget.setCursor(pointing_cursor)
+
+    def _setup_footer_section(self):
+        """设置底部信息区域"""
+        footer_card = QtWidgets.QFrame(self)
+        footer_card.setObjectName("Card")
+        footer_layout = QtWidgets.QVBoxLayout(footer_card)
+        footer_layout.setContentsMargins(28, 24, 28, 24)
+        footer_layout.setSpacing(12)
+
+        footer_header = QtWidgets.QLabel("系统信息", footer_card)
+        footer_header.setObjectName("SectionTitle")
+        footer_layout.addWidget(footer_header)
+
+        self.infoTextBrowser = QtWidgets.QTextBrowser(footer_card)
+        self.infoTextBrowser.setObjectName("SecondaryTextBrowser")
+        self.infoTextBrowser.setFrameShape(QtWidgets.QFrame.NoFrame)
+        self.infoTextBrowser.setOpenExternalLinks(True)
+        self.infoTextBrowser.setHtml(
+            "<p>大理大学 · 数学与计算机学院 22级 信息安全班 蒋添麒<br/>"
+            "项目主页：<a href='https://github.com/a637814143/Machine-Learning-for-Mailcious-PE-File-Detection'>"
+            "GitHub</a></p>"
+        )
+
+        footer_layout.addWidget(self.infoTextBrowser)
+        self.mainLayout.addWidget(footer_card)
 
     def _bind_events(self):
         """绑定事件"""
-        # 文件选择按钮
         self.selectInputButton.clicked.connect(self.select_input_file)
         self.selectOutputButton.clicked.connect(self.select_output_file)
 
-        # 功能按钮
-        for btn, name in self.button_task_map.items():
-            btn.clicked.connect(lambda checked, tn=name: self.start_task(tn))
+        for button, task_name in self.button_task_map.items():
+            button.clicked.connect(lambda checked, tn=task_name: self.start_task(tn))
 
-        # 其他按钮
         self.btn_download_report.clicked.connect(self.download_report)
         self.btn_view_logs.clicked.connect(self.view_logs)
         self.btn_clear_text.clicked.connect(self.clear_result_text)
@@ -291,7 +319,7 @@ class MachineLearningPEUI(QtWidgets.QDialog):
     # --- 文件选择槽 ---
     def select_input_file(self):
         """选择输入文件"""
-        print("[DEBUG] select_input_file called")
+        set_log(GET_TIME("[DEBUG] select_input_file called"))
         path, _ = QFileDialog.getOpenFileName(self, "选择输入文件")
         if path:
             self.inputLineEdit.setText(path)
@@ -311,7 +339,6 @@ class MachineLearningPEUI(QtWidgets.QDialog):
         if self.useOutputCheckBox.isChecked():
             params.append(self.outputLineEdit.text())
 
-        # 添加线程数参数
         thread_count = self.threadCountSpinBox.value()
         params.append(str(thread_count))
 
@@ -329,18 +356,16 @@ class MachineLearningPEUI(QtWidgets.QDialog):
 
         params = self._get_params()
 
-        # 检查必要参数
         if task_name == "文件信息" and not self.useInputCheckBox.isChecked():
             self._append_result_text("请选择输入文件")
             return
 
         if task_name in ["提取特征", "特征转换", "训练模型"] and not (
-                self.useInputCheckBox.isChecked() and self.useOutputCheckBox.isChecked()
+            self.useInputCheckBox.isChecked() and self.useOutputCheckBox.isChecked()
         ):
             self._append_result_text("请选择输入和输出路径")
             return
 
-        # 重置对应任务的进度条
         if task_name in self.progressBars:
             self.progressBars[task_name].setValue(0)
 
@@ -350,10 +375,8 @@ class MachineLearningPEUI(QtWidgets.QDialog):
         if task_name in self.progressBars:
             worker.progress_signal.connect(self.progressBars[task_name].setValue)
 
-        # 如果是文件信息任务，区分HTML和普通文本
         worker.text_signal.connect(self._append_result_text_or_html)
 
-        # 显示启动信息
         thread_info = (
             f"（线程数: {self.threadCountSpinBox.value()}）"
             if task_name in ["提取特征", "特征转换", "训练模型"]
@@ -638,92 +661,34 @@ class MachineLearningPEUI(QtWidgets.QDialog):
                 if name not in unique_packers:
                     unique_packers.append(name)
             for name in unique_packers:
-                lines.append(f"- 节区名包含 `{name}`，疑似常见壳标识。")
+                lines.append(f"- {name}")
 
-        benign_hits = summary.get("benign_api_hits", [])
-        if benign_hits:
-            lines.extend([
-                "",
-                "## 常见系统 API",
-                "",
-            ])
-            for api in benign_hits[:10]:
-                lines.append(f"- `{api}`")
-
-        if strings:
+        if printable_strings:
             lines.extend([
                 "",
                 "## 字符串统计",
                 "",
                 f"- 可打印字符串数量: {printable_strings}",
                 f"- 平均字符串长度: {avg_string_length:.2f}",
-                f"- MZ 标记次数: {mz_count}",
+                f"- 包含 'MZ' 头的字符串数: {mz_count}",
             ])
 
-        if isinstance(string_samples, dict):
-            url_samples = string_samples.get("urls", [])
-            ip_samples = string_samples.get("ips", [])
-            path_samples = string_samples.get("paths", [])
-            reg_samples = string_samples.get("registry", [])
-            suspicious_strings = string_samples.get("suspicious", [])
-            longest_strings = string_samples.get("longest", [])
-            top_chars = string_samples.get("top_chars", [])
+        string_sections = {
+            "url_samples": "URL 样本",
+            "ip_samples": "IP 地址样本",
+            "path_samples": "可疑文件路径样本",
+            "regkey_samples": "注册表键样本",
+            "suspicious_strings": "可疑命令行 / 脚本片段",
+            "longest_strings": "最长字符串样本",
+            "top_characters": "高频字符分布",
+        }
 
-            if url_samples:
-                lines.extend([
-                    "",
-                    "### URL 样本",
-                    "",
-                ])
-                for item in url_samples[:10]:
-                    lines.append(f"- {item}")
+        for key, title in string_sections.items():
+            entries = string_samples.get(key)
+            if not entries:
+                continue
 
-            if ip_samples:
-                lines.extend([
-                    "",
-                    "### IP 地址样本",
-                    "",
-                ])
-                for item in ip_samples[:10]:
-                    lines.append(f"- {item}")
-
-            if path_samples:
-                lines.extend([
-                    "",
-                    "### 可疑文件路径样本",
-                    "",
-                ])
-                for item in path_samples[:10]:
-                    lines.append(f"- {item}")
-
-            if reg_samples:
-                lines.extend([
-                    "",
-                    "### 注册表键样本",
-                    "",
-                ])
-                for item in reg_samples[:10]:
-                    lines.append(f"- {item}")
-
-            if suspicious_strings:
-                lines.extend([
-                    "",
-                    "### 可疑命令行 / 脚本片段",
-                    "",
-                ])
-                for item in suspicious_strings[:10]:
-                    lines.append(f"- {item}")
-
-            if longest_strings:
-                lines.extend([
-                    "",
-                    "### 最长字符串样本",
-                    "",
-                ])
-                for item in longest_strings[:10]:
-                    lines.append(f"- {item}")
-
-            if top_chars:
+            if key == "top_characters":
                 lines.extend([
                     "",
                     "### 高频字符分布",
@@ -731,8 +696,17 @@ class MachineLearningPEUI(QtWidgets.QDialog):
                     "| 字符 | 计数 |",
                     "| --- | ---: |",
                 ])
-                for entry in top_chars[:10]:
+                for entry in entries[:10]:
                     lines.append(f"| `{entry.get('char')}` | {entry.get('count', 0)} |")
+                continue
+
+            lines.extend([
+                "",
+                f"### {title}",
+                "",
+            ])
+            for item in entries[:10]:
+                lines.append(f"- {item}")
 
         if section_overview:
             lines.extend([
