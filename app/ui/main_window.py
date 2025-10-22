@@ -208,6 +208,7 @@ class MachineLearningPEUI(QtWidgets.QDialog):
 
             button = QtWidgets.QPushButton(label_text, row_frame)
             button.setMinimumHeight(36)
+            button.setMinimumWidth(132)
             button.setProperty("variant", "ghost")
 
             row_layout.addWidget(label)
