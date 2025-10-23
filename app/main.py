@@ -6,40 +6,37 @@
 
 import sys
 from PyQt5 import QtWidgets
-from ui.main_window import MachineLearningPEUI
-from scripts.ROOT_PATH import ROOT
-from random import randint
+
 from core.utils.logger import set_log
 from scripts.FILE_NAME import GET_TIME
+from scripts.ROOT_PATH import ROOT
+from ui.main_window import MachineLearningPEUI
 
 
 def main():
     """主函数"""
     try:
-        # 创建Qt应用
         app = QtWidgets.QApplication(sys.argv)
 
-        # 设置应用信息
         app.setApplicationName("恶意PE文件检测系统")
         app.setApplicationVersion("1.0.0")
         app.setOrganizationName("大理大学")
 
-        # 随机皮肤
-        qss = [str(i + 1) + '.qss' for i in range(10)]
-        qss_path = ROOT / "app" / "styles" / qss[3 if randint(2022110, 8900253) % 10 < 5 else 9]
-        set_log(GET_TIME(f"[INFO] selected {qss_path}"))
-        qss_file = open(qss_path, 'r').read()
-        app.setStyleSheet(qss_file)
+        qss_path = ROOT / "app" / "styles" / "modern_aqua.qss"
+        if qss_path.exists():
+            set_log(GET_TIME(f"[INFO] 使用样式表 {qss_path}"))
+            with qss_path.open("r", encoding="utf-8") as handle:
+                app.setStyleSheet(handle.read())
+        else:
+            set_log(GET_TIME(f"[WARN] 样式表 {qss_path} 缺失，使用默认外观"))
 
-        # 创建主窗口
         main_window = MachineLearningPEUI()
         main_window.show()
 
-        # 运行应用
         sys.exit(app.exec_())
 
-    except Exception as e:
-        print(f"程序启动失败: {e}")
+    except Exception as exc:  # pragma: no cover - UI 启动保护
+        print(f"程序启动失败: {exc}")
         sys.exit(1)
 
 
