@@ -29,7 +29,7 @@ class MachineLearningPEUI(QtWidgets.QDialog):
     def setupUi(self):
         """设置用户界面"""
         self.setObjectName("Dialog")
-        self.resize(1400, 860)
+        self.resize(1920, 980)
 
         # --- 输入与选择 ---
         self._setup_input_output_section()
@@ -59,41 +59,41 @@ class MachineLearningPEUI(QtWidgets.QDialog):
         """设置输入输出区域"""
         # 输入输出文本框
         self.inputLineEdit = QtWidgets.QLineEdit(self)
-        self.inputLineEdit.setGeometry(QtCore.QRect(20, 160, 851, 31))
+        self.inputLineEdit.setGeometry(QtCore.QRect(20, 160, 851 + 300, 31 + 9))
         self.inputLineEdit.setObjectName("inputLineEdit")
 
         self.outputLineEdit = QtWidgets.QLineEdit(self)
-        self.outputLineEdit.setGeometry(QtCore.QRect(20, 200, 851, 31))
+        self.outputLineEdit.setGeometry(QtCore.QRect(20, 200 + 9, 851 + 300, 31 + 9))
         self.outputLineEdit.setObjectName("outputLineEdit")
 
         # 选择按钮
         self.selectInputButton = QtWidgets.QPushButton("选择文件(夹)", self)
-        self.selectInputButton.setGeometry(QtCore.QRect(890, 160, 121, 31))
+        self.selectInputButton.setGeometry(QtCore.QRect(890 + 300, 160, 121, 31 + 9))
         self.selectInputButton.setObjectName("selectInputButton")
 
         self.selectOutputButton = QtWidgets.QPushButton("选择文件(夹)", self)
-        self.selectOutputButton.setGeometry(QtCore.QRect(890, 200, 121, 31))
+        self.selectOutputButton.setGeometry(QtCore.QRect(890 + 300, 200 + 9, 121, 31 + 9))
         self.selectOutputButton.setObjectName("selectOutputButton")
 
         # 复选框
         self.useInputCheckBox = QtWidgets.QCheckBox("使用输入", self)
-        self.useInputCheckBox.setGeometry(QtCore.QRect(1030, 160, 91, 31))
+        self.useInputCheckBox.setGeometry(QtCore.QRect(1030 + 285, 165, 91, 31))
         self.useInputCheckBox.setObjectName("useInputCheckBox")
 
         self.useOutputCheckBox = QtWidgets.QCheckBox("使用输出", self)
-        self.useOutputCheckBox.setGeometry(QtCore.QRect(1030, 200, 91, 31))
+        self.useOutputCheckBox.setGeometry(QtCore.QRect(1030 + 285, 215, 91, 31))
         self.useOutputCheckBox.setObjectName("useOutputCheckBox")
 
     def _setup_main_output_section(self):
         """设置主输出区域"""
         self.resultTextBrowser = QtWidgets.QTextBrowser(self)
-        self.resultTextBrowser.setGeometry(QtCore.QRect(20, 290, 851, 551))
+        self.resultTextBrowser.setGeometry(QtCore.QRect(20, 290, 1370, 551))
         self.resultTextBrowser.setObjectName("resultTextBrowser")
 
     def _setup_title_section(self):
         """设置标题区域"""
         self.titleTextBrowser = QtWidgets.QTextBrowser(self)
-        self.titleTextBrowser.setGeometry(QtCore.QRect(20, 20, 1361, 111))
+        self.titleTextBrowser.setGeometry(QtCore.QRect(20, 20, 1880, 111))
         self.titleTextBrowser.setHtml(
             "<p align='center'><span style=' font-size:48pt; font-weight:600; color:#0000ff;'>"
             "基于机器学习的恶意PE文件检测系统</span></p>"
@@ -103,74 +103,74 @@ class MachineLearningPEUI(QtWidgets.QDialog):
         """设置进度条区域"""
         # 标签
         self.lbl_file_info = QtWidgets.QLabel("文件信息", self)
-        self.lbl_file_info.setGeometry(890, 300, 85, 25)
+        self.lbl_file_info.setGeometry(1250 + 550 - 400, 160, 131, 41)
 
         self.lbl_data_cleaning = QtWidgets.QLabel("数据清洗", self)
-        self.lbl_data_cleaning.setGeometry(890, 340, 85, 25)
+        self.lbl_data_cleaning.setGeometry(1250 + 550 - 400, 210, 131, 41)
 
         self.lbl_extract_feature = QtWidgets.QLabel("提取特征", self)
-        self.lbl_extract_feature.setGeometry(890, 380, 85, 25)
+        self.lbl_extract_feature.setGeometry(1250 + 550 - 400, 260, 131, 41)
 
         self.lbl_feature_transform = QtWidgets.QLabel("特征转换", self)
-        self.lbl_feature_transform.setGeometry(890, 420, 85, 25)
+        self.lbl_feature_transform.setGeometry(1250 + 550 - 400, 310, 131, 41)
 
         self.lbl_train_model = QtWidgets.QLabel("训练模型", self)
-        self.lbl_train_model.setGeometry(890, 460, 85, 25)
+        self.lbl_train_model.setGeometry(1250 + 550 - 400, 360, 131, 41)
 
         self.lbl_test_model = QtWidgets.QLabel("测试模型", self)
-        self.lbl_test_model.setGeometry(890, 500, 85, 25)
+        self.lbl_test_model.setGeometry(1250 + 550 - 400, 410, 131, 41)
 
         self.lbl_model_predict = QtWidgets.QLabel("模型预测", self)
-        self.lbl_model_predict.setGeometry(890, 540, 85, 25)
+        self.lbl_model_predict.setGeometry(1250 + 550 - 400, 460, 131, 41)
 
         self.lbl_get_benign = QtWidgets.QLabel("获取良性", self)
-        self.lbl_get_benign.setGeometry(890, 580, 85, 25)
+        self.lbl_get_benign.setGeometry(1250 + 550 - 400, 510, 131, 41)
 
         self.lbl_sandbox = QtWidgets.QLabel("沙箱检测", self)
-        self.lbl_sandbox.setGeometry(890, 620, 85, 25)
+        self.lbl_sandbox.setGeometry(1250 + 550 - 400, 560, 131, 41)
 
         self.lbl_install_deps = QtWidgets.QLabel("安装依赖", self)
-        self.lbl_install_deps.setGeometry(890, 660, 85, 25)
+        self.lbl_install_deps.setGeometry(1250 + 550 - 400, 610, 131, 41)
 
         # 进度条
         self.progress_file_info = QtWidgets.QProgressBar(self)
-        self.progress_file_info.setGeometry(985, 300, 245, 25)
+        self.progress_file_info.setGeometry(1250 + 200 + 20, 160 + 2, 300, 40 - 4)
         self.progress_file_info.setValue(0)
 
         self.progress_data_cleaning = QtWidgets.QProgressBar(self)
-        self.progress_data_cleaning.setGeometry(985, 340, 245, 25)
+        self.progress_data_cleaning.setGeometry(1250 + 200 + 20, 210 + 2, 300, 40 - 4)
         self.progress_data_cleaning.setValue(0)
 
         self.progress_extract_feature = QtWidgets.QProgressBar(self)
-        self.progress_extract_feature.setGeometry(985, 380, 245, 25)
+        self.progress_extract_feature.setGeometry(1250 + 200 + 20, 260 + 2, 300, 40 - 4)
         self.progress_extract_feature.setValue(0)
 
         self.progress_feature_transform = QtWidgets.QProgressBar(self)
-        self.progress_feature_transform.setGeometry(985, 420, 245, 25)
+        self.progress_feature_transform.setGeometry(1250 + 200 + 20, 310 + 2, 300, 40 - 4)
         self.progress_feature_transform.setValue(0)
 
         self.progress_train_model = QtWidgets.QProgressBar(self)
-        self.progress_train_model.setGeometry(985, 460, 245, 25)
+        self.progress_train_model.setGeometry(1250 + 200 + 20, 360 + 2, 300, 40 - 4)
         self.progress_train_model.setValue(0)
 
         self.progress_test_model = QtWidgets.QProgressBar(self)
-        self.progress_test_model.setGeometry(985, 500, 245, 25)
+        self.progress_test_model.setGeometry(1250 + 200 + 20, 410 + 2, 300, 40 - 4)
         self.progress_test_model.setValue(0)
 
         self.progress_model_predict = QtWidgets.QProgressBar(self)
-        self.progress_model_predict.setGeometry(985, 540, 245, 25)
+        self.progress_model_predict.setGeometry(1250 + 200 + 20, 460 + 2, 300, 40 - 4)
         self.progress_model_predict.setValue(0)
 
         self.progress_get_benign = QtWidgets.QProgressBar(self)
-        self.progress_get_benign.setGeometry(985, 580, 245, 25)
+        self.progress_get_benign.setGeometry(1250 + 200 + 20, 510 + 2, 300, 40 - 4)
         self.progress_get_benign.setValue(0)
 
         self.progress_sandbox = QtWidgets.QProgressBar(self)
-        self.progress_sandbox.setGeometry(985, 620, 245, 25)
+        self.progress_sandbox.setGeometry(1250 + 200 + 20, 560 + 2, 300, 40 - 4)
         self.progress_sandbox.setValue(0)
 
         self.progress_install_deps = QtWidgets.QProgressBar(self)
-        self.progress_install_deps.setGeometry(985, 660, 245, 25)
+        self.progress_install_deps.setGeometry(1250 + 200 + 20, 610 + 2, 300, 40 - 4)
         self.progress_install_deps.setValue(0)
 
         # 进度条映射
@@ -191,34 +191,34 @@ class MachineLearningPEUI(QtWidgets.QDialog):
         """设置功能按钮"""
         # 右侧功能按钮
         self.btn_file_info = QtWidgets.QPushButton("文件信息", self)
-        self.btn_file_info.setGeometry(1250, 160, 131, 41)
+        self.btn_file_info.setGeometry(1250 + 520, 160, 131, 41)
 
         self.btn_data_cleaning = QtWidgets.QPushButton("数据清洗", self)
-        self.btn_data_cleaning.setGeometry(1250, 210, 131, 41)
+        self.btn_data_cleaning.setGeometry(1250 + 520, 210, 131, 41)
 
         self.btn_extract_feature = QtWidgets.QPushButton("提取特征", self)
-        self.btn_extract_feature.setGeometry(1250, 260, 131, 41)
+        self.btn_extract_feature.setGeometry(1250 + 520, 260, 131, 41)
 
         self.btn_feature_transform = QtWidgets.QPushButton("特征转换", self)
-        self.btn_feature_transform.setGeometry(1250, 310, 131, 41)
+        self.btn_feature_transform.setGeometry(1250 + 520, 310, 131, 41)
 
         self.btn_model_train = QtWidgets.QPushButton("模型训练", self)
-        self.btn_model_train.setGeometry(1250, 360, 131, 41)
+        self.btn_model_train.setGeometry(1250 + 520, 360, 131, 41)
 
         self.btn_model_test = QtWidgets.QPushButton("测试模型", self)
-        self.btn_model_test.setGeometry(1250, 410, 131, 41)
+        self.btn_model_test.setGeometry(1250 + 520, 410, 131, 41)
 
         self.btn_model_predict = QtWidgets.QPushButton("模型预测", self)
-        self.btn_model_predict.setGeometry(1250, 460, 131, 41)
+        self.btn_model_predict.setGeometry(1250 + 520, 460, 131, 41)
 
         self.btn_get_benign = QtWidgets.QPushButton("获取良性", self)
-        self.btn_get_benign.setGeometry(1250, 510, 131, 41)
+        self.btn_get_benign.setGeometry(1250 + 520, 510, 131, 41)
 
         self.btn_sandbox = QtWidgets.QPushButton("沙箱检测", self)
-        self.btn_sandbox.setGeometry(1250, 560, 131, 41)
+        self.btn_sandbox.setGeometry(1250 + 520, 560, 131, 41)
 
         self.btn_install_deps = QtWidgets.QPushButton("安装依赖", self)
-        self.btn_install_deps.setGeometry(1250, 610, 131, 41)
+        self.btn_install_deps.setGeometry(1250 + 520, 610, 131, 41)
 
         # 按钮任务映射
         self.button_task_map = {
@@ -238,17 +238,17 @@ class MachineLearningPEUI(QtWidgets.QDialog):
         """设置底部区域"""
         # 中下部按钮
         self.btn_download_report = QtWidgets.QPushButton("下载报告", self)
-        self.btn_download_report.setGeometry(890, 695, 160, 35)
+        self.btn_download_report.setGeometry(890 + 510, 665, 160, 41)
 
         self.btn_view_logs = QtWidgets.QPushButton("查看日志", self)
-        self.btn_view_logs.setGeometry(1060, 695, 160, 35)
+        self.btn_view_logs.setGeometry(1060 + 510, 665, 160, 41)
 
         self.btn_clear_text = QtWidgets.QPushButton("清空文本展示区", self)
-        self.btn_clear_text.setGeometry(1230, 695, 161, 35)
+        self.btn_clear_text.setGeometry(1230 + 510, 665, 161, 41)
 
         # 底部信息
         self.infoTextBrowser = QtWidgets.QTextBrowser(self)
-        self.infoTextBrowser.setGeometry(890, 740, 341, 101)
+        self.infoTextBrowser.setGeometry(20, 850, 1880, 120)
         self.infoTextBrowser.setHtml(
             "<p>大理大学 @2025<br/>数学与计算机学院 22级 信息安全班 蒋添麒<br/>"
             "Github Address:<br/>https://github.com/a637814143/Machine-Learning-for-Mailcious-PE-File-Detection</p>"
@@ -256,22 +256,22 @@ class MachineLearningPEUI(QtWidgets.QDialog):
 
         # 线程数配置
         self.threadCountLabel = QtWidgets.QLabel("线程数:", self)
-        self.threadCountLabel.setGeometry(1245, 810, 60, 21)
+        self.threadCountLabel.setGeometry(1245 + 500, 810, 60, 40)
 
         self.threadCountSpinBox = QtWidgets.QSpinBox(self)
-        self.threadCountSpinBox.setGeometry(1305, 810, 80, 21)
+        self.threadCountSpinBox.setGeometry(1305 + 500, 810, 80, 40)
         self.threadCountSpinBox.setMinimum(1)
         self.threadCountSpinBox.setMaximum(100)
-        self.threadCountSpinBox.setValue(4)  # 默认4个线程
+        self.threadCountSpinBox.setValue(8)  # 默认4个线程
         self.threadCountSpinBox.setToolTip("设置特征提取使用的线程数（1-16）")
 
     def _setup_middle_labels(self):
         """设置中间标签"""
         self.middleLabel_result = QtWidgets.QLabel("运行结果区", self)
-        self.middleLabel_result.setGeometry(400, 250, 111, 21)
+        self.middleLabel_result.setGeometry(800, 260, 111, 21)
 
         self.middleLabel_progress = QtWidgets.QLabel("进度展示区", self)
-        self.middleLabel_progress.setGeometry(1010, 250, 111, 21)
+        self.middleLabel_progress.setGeometry(1570, 140, 111, 21)
 
     def _bind_events(self):
         """绑定事件"""
