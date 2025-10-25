@@ -4,6 +4,7 @@ import time
 from pathlib import Path
 from typing import Optional, List, Dict, Union
 
+from core.utils.logger import LOG_DIR, list_logs, read_log, set_log
 from scripts.ROOT_PATH import ROOT
 
 
@@ -21,7 +22,7 @@ class ReportManager:
         :param logs_dir: 日志目录
         """
         self.reports_dir = Path(reports_dir) if reports_dir else ROOT / "docs"
-        self.logs_dir = Path(logs_dir) if logs_dir else ROOT / "logs"
+        self.logs_dir = Path(logs_dir) if logs_dir else LOG_DIR
 
         # 确保目录存在
         self.reports_dir.mkdir(parents=True, exist_ok=True)
@@ -66,24 +67,24 @@ class ReportManager:
         :return: 日志内容列表或None
         """
         try:
+            if max_lines is not None and max_lines <= 0:
+                max_lines = None
+
             if log_name is None:
                 # 获取最新的日志文件
-                log_files = list(self.logs_dir.glob("*.log")) + list(self.logs_dir.glob("*.txt"))
-                if not log_files:
+                available = list_logs(self.logs_dir)
+                if not available:
                     return None
-
-                # 按修改时间排序，获取最新的
-                latest_log = max(log_files, key=lambda x: x.stat().st_mtime)
-                log_name = latest_log.name
-
-            log_path = self.logs_dir / log_name
-            if log_path.exists():
-                with open(log_path, 'r', encoding='utf-8') as f:
-                    lines = f.readlines()
-                    # 返回最后max_lines行
-                    return lines[-max_lines:] if len(lines) > max_lines else lines
+                log_path = available[0]
             else:
+                candidate = Path(log_name)
+                log_path = candidate if candidate.is_absolute() else self.logs_dir / candidate
+
+            if not log_path.exists():
                 return None
+
+            lines = read_log(log_path, max_lines=max_lines)
+            return lines
 
         except Exception as e:
             print(f"查看日志失败: {e}")
@@ -120,19 +121,20 @@ class ReportManager:
         :return: 日志信息列表
         """
         try:
-            logs = []
-            for log_file in self.logs_dir.glob("*"):
-                if log_file.is_file():
-                    stat = log_file.stat()
-                    logs.append({
-                        "name": log_file.name,
-                        "size": f"{stat.st_size / 1024:.1f} KB",
-                        "modified": time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(stat.st_mtime)),
-                        "path": str(log_file)
-                    })
+            logs: List[Dict[str, Union[str, float]]] = []
+            for log_file in list_logs(self.logs_dir):
+                stat = log_file.stat()
+                logs.append({
+                    "name": log_file.name,
+                    "size": f"{stat.st_size / 1024:.1f} KB",
+                    "modified": time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(stat.st_mtime)),
+                    "path": str(log_file),
+                    "_modified_ts": stat.st_mtime,
+                })
 
-            # 按修改时间排序
-            logs.sort(key=lambda x: x["modified"], reverse=True)
+            logs.sort(key=lambda x: x.get("_modified_ts", 0), reverse=True)
+            for entry in logs:
+                entry.pop("_modified_ts", None)
             return logs
 
         except Exception as e:
@@ -218,16 +220,12 @@ class ReportManager:
         :return: 是否成功
         """
         try:
-            log_path = self.logs_dir / log_name
-
             from datetime import datetime
+
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            log_entry = f"[{timestamp}] {message}\n"
+            log_entry = f"[{timestamp}] {message}"
 
-            with open(log_path, 'a', encoding='utf-8') as f:
-                f.write(log_entry)
-
-            return True
+            return set_log(log_entry, log_name=log_name, log_dir=self.logs_dir)
 
         except Exception as e:
             print(f"记录日志失败: {e}")
