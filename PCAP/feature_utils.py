@@ -308,10 +308,28 @@ def _variance(values: List[float]) -> float:
     return statistics.pvariance(values)
 
 
+PCAP_HEADER_MAGIC = {
+    b"\xd4\xc3\xb2\xa1",  # little endian, microsecond resolution
+    b"\xa1\xb2\xc3\xd4",  # big endian, microsecond resolution
+    b"\x4d\x3c\xb2\xa1",  # little endian, nanosecond resolution
+    b"\xa1\xb2\x3c\x4d",  # big endian, nanosecond resolution
+}
+PCAPNG_HEADER_MAGIC = b"\x0a\x0d\x0d\x0a"
+
+
 def _try_read_pcap(path: Path) -> Iterator[Tuple[float, bytes]]:
     with path.open("rb") as fh:
-        pcap_reader = dpkt.pcap.Reader(fh)
-        for timestamp, buf in pcap_reader:
+        header = fh.read(4)
+        fh.seek(0)
+
+        if header in PCAP_HEADER_MAGIC:
+            reader: Iterator[Tuple[float, bytes]] = dpkt.pcap.Reader(fh)
+        elif header == PCAPNG_HEADER_MAGIC:
+            reader = dpkt.pcapng.Reader(fh)
+        else:  # pragma: no cover - defensive branch for unknown formats
+            raise ValueError("Unsupported PCAP header signature; expected PCAP or PCAPNG data")
+
+        for timestamp, buf in reader:
             yield timestamp, buf
 
 
