@@ -31,5 +31,5 @@ __all__ = [
 ]
 
 __version__ = "2.1.0"
-__author__ = "蒋添麒"
-__organization__ = "大理大学数学与计算机学院"
+__author__ = "a637814143"
+__organization__ = "single"

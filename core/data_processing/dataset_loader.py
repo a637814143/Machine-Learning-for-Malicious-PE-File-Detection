@@ -5,6 +5,9 @@ import shutil
 from pefile import PE
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from tqdm import tqdm
+from core.utils.logger import set_log
+from scripts.FILE_NAME import GET_TIME
+
 
 RAW_PATH = [ROOT / "data" / "raw" / "benign",
             ROOT / "data" / "raw" / "malware"]
@@ -67,13 +70,7 @@ def validate_dataset():
         try:
             shutil.move(str(file), dest)
         except Exception as e:
-            print(f"[ERROR MOVE] {file}: {e}")
+            set_log(GET_TIME(f"[ERROR] {file}: {e}"))
 
     return valid_files
 
-
-if __name__ == "__main__":
-    all_valid = validate_dataset()
-    print(f"验证完成，共 {len(all_valid)} 个有效 PE 文件")
-    for f, t in all_valid[:10]:
-        print(f"{f} -> {t}")

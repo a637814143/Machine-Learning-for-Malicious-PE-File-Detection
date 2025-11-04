@@ -8,7 +8,6 @@ import sys
 from PyQt5 import QtWidgets
 from ui.main_window import MachineLearningPEUI
 from scripts.ROOT_PATH import ROOT
-from random import randint
 from core.utils.logger import set_log
 from scripts.FILE_NAME import GET_TIME
 
@@ -26,8 +25,8 @@ def main():
 
         # 随机皮肤
         qss = [str(i + 1) + '.qss' for i in range(10)]
-        qss_path = ROOT / "app" / "styles" / qss[3 if randint(2022110, 8900253) % 10 < 5 else 9]
-        set_log(GET_TIME(f"[INFO] selected {qss_path}"))
+        qss_path = ROOT / "app" / "styles" / "10.qss"
+        set_log(GET_TIME(f"[INFO] 启动GUI并使用了{qss_path}"))
         qss_file = open(qss_path, 'r').read()
         app.setStyleSheet(qss_file)
 

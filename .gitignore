@@ -1,7 +1,18 @@
-data/quarantine
-data/raw
-tests/
+# 忽略所有文件和文件夹
+*
+
+# 不忽略 .py 文件
+!**/*.py
+
+# 如果你不想提交某些文件夹，可以单独添加它们
+!data/quarantine/
+!data/raw/
+!tests/
+!models/
+!docs/
+
+# 忽略其他文件类型
+**/*.txt
+**/*.pyc
 .idea/
-docs/
 .venv/
-models/

@@ -8,8 +8,7 @@ from typing import Any, Dict, Mapping, Optional
 
 import multiprocessing
 
-# Default LightGBM hyperparameters taken from the official EMBER pipeline.
-# See https://github.com/elastic/ember/blob/master/train_model_lightgbm.py
+
 _EMBER_LIGHTGBM_BASE_PARAMS: Dict[str, Any] = {
     "boosting_type": "gbdt",
     "objective": "binary",

@@ -3,7 +3,8 @@ import os
 import time
 from pathlib import Path
 from typing import Optional, List, Dict, Union
-
+from core.utils.logger import set_log
+from scripts.FILE_NAME import GET_TIME
 from scripts.ROOT_PATH import ROOT
 
 
@@ -13,19 +14,19 @@ class ReportManager:
     def __init__(
             self,
             reports_dir: Optional[Union[str, os.PathLike]] = None,
-            logs_dir: Optional[Union[str, os.PathLike]] = None,
+            #logs_dir: Optional[Union[str, os.PathLike]] = None,
     ):
         """
         初始化报告管理器
         :param reports_dir: 报告目录
-        :param logs_dir: 日志目录
+        # :param logs_dir: 日志目录
         """
         self.reports_dir = Path(reports_dir) if reports_dir else ROOT / "docs"
-        self.logs_dir = Path(logs_dir) if logs_dir else ROOT / "logs"
+        # self.logs_dir = Path(logs_dir) if logs_dir else ROOT / "logs"
 
         # 确保目录存在
         self.reports_dir.mkdir(parents=True, exist_ok=True)
-        self.logs_dir.mkdir(parents=True, exist_ok=True)
+        # self.logs_dir.mkdir(parents=True, exist_ok=True)
 
     def download_report(self, report_name: str = None) -> Optional[str]:
         """
@@ -151,8 +152,10 @@ class ReportManager:
                 from datetime import datetime
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 report_name = f"report_{timestamp}.html"
+                set_log(GET_TIME(f"[INFO] 报告已生成{report_name}"))
 
             report_path = self.reports_dir / report_name
+            set_log(GET_TIME(f"[INFO] 报告保存位置{report_path}"))
 
             # 创建HTML格式的报告
             html_content = f"""
@@ -189,7 +192,7 @@ class ReportManager:
             return str(report_path)
 
         except Exception as e:
-            print(f"创建报告失败: {e}")
+            set_log(GET_TIME(f"[ERROR] 创建报告失败: {e}"))
             return None
 
     def create_markdown_report(self, content: str, report_name: str = None) -> Optional[str]:
@@ -204,31 +207,9 @@ class ReportManager:
             report_path = self.reports_dir / report_name
             with open(report_path, "w", encoding="utf-8") as f:
                 f.write(content)
+            set_log(GET_TIME(f"[INFO] Markdown file saved at {report_path}"))
 
             return str(report_path)
         except Exception as e:
-            print(f"创建Markdown报告失败: {e}")
+            set_log(GET_TIME(f"[ERROR] 创建Markdown报告失败: {e}"))
             return None
-
-    def log_message(self, message: str, log_name: str = "app.log") -> bool:
-        """
-        记录日志消息
-        :param message: 日志消息
-        :param log_name: 日志文件名
-        :return: 是否成功
-        """
-        try:
-            log_path = self.logs_dir / log_name
-
-            from datetime import datetime
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            log_entry = f"[{timestamp}] {message}\n"
-
-            with open(log_path, 'a', encoding='utf-8') as f:
-                f.write(log_entry)
-
-            return True
-
-        except Exception as e:
-            print(f"记录日志失败: {e}")
-            return False

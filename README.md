@@ -1,89 +1,85 @@
-# Machine Learning for Malicious PE File Detection
+# 基于机器学习的恶意 PE 文件检测系统
 
-## Project Overview
-This project aims to build a machine learning-based system to detect malicious PE (Portable Executable) files.  
-It integrates feature extraction, model training, prediction, and reporting, with a GUI for easy analysis and visualization.  
-The goal is to provide a complete pipeline for malware detection and threat assessment.
+## 项目简介 & 体验
 
+您可以访问 http://1.95.159.199 来体验这个项目，上传 exe 文件即可检测并下载报告
 
----
+![image-GUI](PNG/web.png)
 
-## Project Structure
+此项目使用 `PyQt5` 完成 `GUI` 的构建，能够使用 `GUI` 进行完整的训练及测试流程，并对 PE 文件进行报告式的总结，耗时任务进度采用异步传输，并在 `GUI` 中显示，执行 `提取特征` -> `特征转换` -> `模型训练` 即可获得模型文件，然后你可以修改阈值来使准确性提高。
+(more exes -> jsonl -> npz -> model)
+
+![image-GUI](PNG/GUI.png)
+
+## 项目结构
 
 ```
-Graduation-Project-ML-Malicious-PE/
-├── app/ # Main application
-│ ├── main.py # Entry point
-│ ├── ui/ # UI modules
-│ │ ├── main_window.py
-│ │ ├── report_view.py
-│ │ ├── progress_dialog.py
-│ │ └── resources.py # Icons and assets
-│ ├── controllers/ # Application controllers
-│ │ ├── analysis_controller.py
-│ │ └── file_controller.py
-│ └── models/ # UI data models
-│ ├── analysis_model.py
-│ └── report_model.py
-├── core/ # Core functionality
-│ ├── feature_engineering/ # Feature extraction
-│ │ ├── pe_parser.py
-│ │ ├── static_features.py
-│ │ ├── semantic_features.py
-│ │ └── feature_utils.py
-│ ├── analysis/ # Analysis modules
-│ │ ├── predictor.py
-│ │ ├── report_generator.py
-│ │ └── threat_assessment.py
-│ ├── data_processing/ # Data preprocessing
-│ │ ├── dataset_loader.py
-│ │ ├── sampler.py
-│ │ └── splitter.py
-│ ├── modeling/ # Model training and evaluation
-│ │ ├── model_factory.py
-│ │ ├── trainer.py
-│ │ ├── evaluator.py
-│ │ └── uncertainty.py
-│ └── utils/ # Utility functions
-│ ├── async_worker.py
-│ ├── logger.py
-│ ├── security.py
-│ └── visualization.py
-├── data/ # Data storage
-│ ├── raw/ # Raw samples
-│ │ ├── benign/ # Benign samples
-│ │ └── malware/ # Malicious samples
-│ ├── processed/ # Preprocessed data
-│ └── quarantine/ # Suspicious files
-├── models/ # Saved ML models
-│ ├── production/
-│ ├── candidates/
-│ └── legacy/
-├── tests/ # Unit tests
-├── docs/ # Documentation
-├── scripts/ # Scripts and utilities
-├── requirements.txt # Python dependencies
-└── README.md # Project overview
+Machine-Learning-for-Malicious-PE-File-Detection-main/
+├── PNG
+├── docs/
+├── data/
+│   ├── processed/
+│   │   ├── jsonl/
+│   │   ├── models/
+│   │   └── npy/
+│   ├── quarantine/
+│   │   └── invalid/
+│   └── raw/
+│       ├── benign/
+│       ├── malware/
+│       └── test/
+├── app/
+│   ├── main.py
+│   ├── tasks/
+│   │   ├── __init__.py
+│   │   ├── default_tasks.py
+│   │   └── registry.py
+│   └── ui/
+│       ├── __init__.py
+│       ├── main_window.py
+│       ├── progress_dialog.py
+│       ├── report_view.py
+│       └── resources.py
+├── core/
+│   ├── report_builder.py
+│   ├── data_processing/
+│   │   └── dataset_loader.py
+│   ├── feature_engineering/
+│   │   ├── __init__.py
+│   │   ├── feature_utils.py
+│   │   ├── pe_parser.py
+│   │   ├── static_features.py
+│   │   └── vectorization.py
+│   ├── modeling/
+│   │   ├── model_factory.py
+│   │   └── trainer.py
+│   └── utils/
+│       ├── logger.py
+│       └── visualization.py
+├── Flask/
+│   ├── __init__.py
+│   ├── app.py
+│   └── routes.py
+└── scripts/
+    ├── D.py
+    ├── DATA_CLEAN.py
+    ├── FILE_NAME.py
+    ├── GET_B.py
+    ├── PIP_INSTALL.py
+    ├── ROOT_PATH.py
+    └── SENDBOX.py
 ```
 
-## Development Progress
+## 使用方式
 
-- **Project Initialization**: Completed, repository structure established.  
-- **Core Modules**:  
-  - Feature extraction (PE parsing, static and semantic features) implemented.  
-  - Data processing pipeline (loader, sampler, splitter) partially implemented.  
-  - Modeling modules (trainer, evaluator) partially implemented.  
-- **Application GUI**: Main window and basic UI components implemented; progress dialogs and report view ready.  
-- **Integration**: Preliminary integration of feature extraction and model pipeline underway.  
-- **Next Steps**:  
-  - Complete model training and evaluation.  
-  - Implement full prediction workflow with report generation.  
-  - Optimize GUI for usability and visualization.  
-  - Perform testing on VirusShare dataset.
+下载原始 exe 数据集（良性、恶意）并存储在不同位置，存放恶意文件的目录必须有单词 `malware` 字样
 
----
+使用 GUI 的 `提取特征` 分别提取良性、恶意文件的特征，合并，打乱，产物为 `.jsonl` 文件
 
-## Summary
-This project provides a structured approach for detecting malicious PE files using machine learning.  
-The framework and partial core functionality have been established.  
-Further development will enable complete malware analysis, prediction, and reporting capabilities.
+使用 GUI 的 `特征转换` 将上一步的 `jsonl` 文件转化为 `.npz` 文件，即向量化
+
+使用 GUI 的 `模型训练` 功能将 `npy` / `npz` 文件训练为可使用的 `model.txt` 模型文件
+
+使用 GUI 的 `模型测试` 功能测试模型的准确率和误报率
+
+使用 GUI 的 `模型检测` 功能，使用根目录下的 `model.txt` 进行检测，或者使用 GUI 选择其他模型，直接对 exe 进行检测

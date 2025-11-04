@@ -7,6 +7,8 @@ from typing import Dict, Union
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
+from core.utils.logger import set_log
+from scripts.FILE_NAME import GET_TIME
 
 from scripts.FILE_NAME import NAME_RULE
 from .feature_utils import (
@@ -111,9 +113,10 @@ def extract_features(pe_path: Union[str, Path], progress_callback=None) -> Dict[
     try:
         features["sha256"] = Hash_sha256(str(pe_path))
         features["md5"] = Hash_md5(str(pe_path))
-    except Exception:
+    except Exception as e:
         features["sha256"] = ""
         features["md5"] = ""
+        set_log(GET_TIME(f"[ERROR] hash saved failed {e}"))
 
     try:
         features["appeared"] = Appeared()
