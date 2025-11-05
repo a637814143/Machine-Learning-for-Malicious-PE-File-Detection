@@ -7,8 +7,8 @@ from PyQt5 import QtCore, QtWidgets
 from PyQt5.QtWidgets import QFileDialog
 from .progress_dialog import Worker
 from .report_view import ReportManager
+from .dynamic_analysis_dialog import DynamicAnalysisDialog
 from scripts.GET_B import BenignResourceDialog
-from scripts.SENDBOX import SandboxDialog
 from core.utils.logger import set_log
 from scripts.FILE_NAME import GET_TIME
 from scripts.D import predict_file_with_features
@@ -22,7 +22,7 @@ class MachineLearningPEUI(QtWidgets.QDialog):
         self.workers = {}
         self.report_manager = ReportManager()
         self._benign_dialog = None
-        self._sandbox_dialog = None
+        self._dynamic_dialog = None
         self.setupUi()
 
     def setupUi(self):
@@ -340,7 +340,7 @@ class MachineLearningPEUI(QtWidgets.QDialog):
             return
 
         if task_name == "沙箱检测":
-            self.open_sandbox_helper()
+            self.open_dynamic_analysis()
             return
 
         params = self._get_params()
@@ -389,16 +389,29 @@ class MachineLearningPEUI(QtWidgets.QDialog):
             self.progressBars["获取良性"].setValue(100)
         self._append_result_text("已打开良性样本资源窗口。")
 
-    def open_sandbox_helper(self):
-        """打开沙箱检测指导窗口。"""
-        if self._sandbox_dialog is None:
-            self._sandbox_dialog = SandboxDialog(self)
-        self._sandbox_dialog.show()
-        self._sandbox_dialog.raise_()
-        self._sandbox_dialog.activateWindow()
+    def open_dynamic_analysis(self):
+        """打开动态检测窗口并触发动态分析。"""
+        if self._dynamic_dialog is None:
+            self._dynamic_dialog = DynamicAnalysisDialog(self)
+            self._dynamic_dialog.analysisCompleted.connect(
+                self._handle_dynamic_analysis_completed
+            )
+            self._dynamic_dialog.analysisFailed.connect(self._append_result_text)
+
+        # 每次打开前更新文件路径
+        self._dynamic_dialog.set_file_path(self.inputLineEdit.text())
+        self._dynamic_dialog.show()
+        self._dynamic_dialog.raise_()
+        self._dynamic_dialog.activateWindow()
+
+    def _handle_dynamic_analysis_completed(self, html: str) -> None:
+        """动态检测完成后刷新主界面展示。"""
         if "沙箱检测" in self.progressBars:
             self.progressBars["沙箱检测"].setValue(100)
-        self._append_result_text("已打开沙箱检测指南窗口。")
+
+        # 在结果区中展示格式化后的检测摘要
+        if html.strip():
+            self.resultTextBrowser.setHtml(html)
 
     def _append_result_text_or_html(self, txt: str):
         """如果是HTML就渲染，否则追加文本"""
