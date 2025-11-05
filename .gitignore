@@ -11,6 +11,8 @@
 !tests/
 !models/
 !docs/
+!app/
+!app/ui/
 
 # 忽略其他文件类型
 **/*.txt
