@@ -10,3 +10,5 @@ Werkzeug~=3.0.4
 networkx~=3.3
 capstone~=5.0.1
 rich~=14.1.0
+requests~=2.31.0
+frida~=16.7.14

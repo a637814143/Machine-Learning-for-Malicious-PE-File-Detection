@@ -476,7 +476,32 @@ class MachineLearningPEUI(QtWidgets.QDialog):
 
     def view_logs(self):
         """查看日志"""
-        self._append_result_text("查看日志：占位（未实现）")
+        log_lines = self.report_manager.view_logs(max_lines=300)
+        if not log_lines:
+            self._append_result_text("未找到可显示的日志内容。")
+            return
+
+        log_text = "".join(log_lines).strip()
+        if not log_text:
+            self._append_result_text("日志文件为空。")
+            return
+
+        log_dialog = QtWidgets.QDialog(self)
+        log_dialog.setWindowTitle("查看日志")
+        log_dialog.resize(900, 600)
+
+        layout = QtWidgets.QVBoxLayout(log_dialog)
+        text_edit = QtWidgets.QPlainTextEdit(log_dialog)
+        text_edit.setReadOnly(True)
+        text_edit.setPlainText(log_text)
+        layout.addWidget(text_edit)
+
+        close_button = QtWidgets.QPushButton("关闭", log_dialog)
+        close_button.clicked.connect(log_dialog.close)
+        layout.addWidget(close_button)
+
+        self._append_result_text(f"显示日志共 {len(log_lines)} 行。")
+        log_dialog.exec_()
 
     def clear_result_text(self):
         """清空文件信息展示区"""

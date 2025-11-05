@@ -51,7 +51,7 @@ class DatasetBundle:
             )
 
 
-def _import_lightgbm() -> "lgb":
+def _import_lightgbm() -> lgb:
     """Import LightGBM lazily and provide actionable error messages."""
 
     global _LIGHTGBM_MODULE

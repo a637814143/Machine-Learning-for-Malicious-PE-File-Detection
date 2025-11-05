@@ -3,7 +3,7 @@ import os
 import time
 from pathlib import Path
 from typing import Optional, List, Dict, Union
-from core.utils.logger import set_log
+from core.utils.logger import set_log, LOG_PATH
 from scripts.FILE_NAME import GET_TIME
 from scripts.ROOT_PATH import ROOT
 
@@ -14,7 +14,7 @@ class ReportManager:
     def __init__(
             self,
             reports_dir: Optional[Union[str, os.PathLike]] = None,
-            #logs_dir: Optional[Union[str, os.PathLike]] = None,
+            logs_dir: Optional[Union[str, os.PathLike]] = None,
     ):
         """
         初始化报告管理器
@@ -22,11 +22,12 @@ class ReportManager:
         # :param logs_dir: 日志目录
         """
         self.reports_dir = Path(reports_dir) if reports_dir else ROOT / "docs"
-        # self.logs_dir = Path(logs_dir) if logs_dir else ROOT / "logs"
+        self.logs_dir = Path(logs_dir) if logs_dir else LOG_PATH.parent
+        self.log_path = Path(LOG_PATH)
 
         # 确保目录存在
         self.reports_dir.mkdir(parents=True, exist_ok=True)
-        # self.logs_dir.mkdir(parents=True, exist_ok=True)
+        self.logs_dir.mkdir(parents=True, exist_ok=True)
 
     def download_report(self, report_name: str = None) -> Optional[str]:
         """
@@ -61,30 +62,35 @@ class ReportManager:
 
     def view_logs(self, log_name: str = None, max_lines: int = 100) -> Optional[List[str]]:
         """
-        查看日志
-        :param log_name: 日志文件名，如果为None则使用最新日志
-        :param max_lines: 最大显示行数
+        查看日志内容
+        :param log_name: 指定日志文件名，默认为最新日志
+        :param max_lines: 返回的最大行数
         :return: 日志内容列表或None
         """
         try:
-            if log_name is None:
-                # 获取最新的日志文件
-                log_files = list(self.logs_dir.glob("*.log")) + list(self.logs_dir.glob("*.txt"))
-                if not log_files:
-                    return None
-
-                # 按修改时间排序，获取最新的
-                latest_log = max(log_files, key=lambda x: x.stat().st_mtime)
-                log_name = latest_log.name
-
-            log_path = self.logs_dir / log_name
-            if log_path.exists():
-                with open(log_path, 'r', encoding='utf-8') as f:
-                    lines = f.readlines()
-                    # 返回最后max_lines行
-                    return lines[-max_lines:] if len(lines) > max_lines else lines
+            if log_name:
+                candidate_path = self.logs_dir / log_name
+                log_path = self.log_path if candidate_path.name == self.log_path.name else candidate_path
             else:
+                if self.log_path.exists():
+                    log_path = self.log_path
+                else:
+                    log_files = list(self.logs_dir.glob("*.log")) + list(self.logs_dir.glob("*.txt"))
+                    if not log_files:
+                        return None
+                    log_path = max(log_files, key=lambda path: path.stat().st_mtime)
+
+            if not log_path.exists():
                 return None
+
+            try:
+                with open(log_path, 'r', encoding='utf-8') as handler:
+                    lines = handler.readlines()
+            except UnicodeDecodeError:
+                with open(log_path, 'r', encoding='gbk', errors='replace') as handler:
+                    lines = handler.readlines()
+
+            return lines[-max_lines:] if len(lines) > max_lines else lines
 
         except Exception as e:
             print(f"查看日志失败: {e}")

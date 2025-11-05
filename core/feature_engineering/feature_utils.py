@@ -83,6 +83,8 @@ _DATA_DIR_NAMES = [
     "GLOBAL_PTR", "TLS_TABLE", "LOAD_CONFIG_TABLE", "BOUND_IMPORT",
     "IAT", "DELAY_IMPORT_DESCRIPTOR", "CLR_RUNTIME_HEADER"
 ]
+
+
 def Hash_md5(file_path: str, size: int = 4 * 1024 * 1024) -> str:
     """
     分块取md5
@@ -374,7 +376,7 @@ def General(path: str) -> Dict:
     # imports: 导入函数总数（所有 DLL 的 entries 合计）
     try:
         total = 0
-        for lib in getattr(bin, "imports", []):   # List[lief.PE.Import]
+        for lib in getattr(bin, "imports", []):  # List[lief.PE.Import]
             total += len(getattr(lib, "entries", []))
         out["imports"] = int(total)
     except Exception:
@@ -473,10 +475,12 @@ def Header(file_path: str) -> Dict:
         bitmask = getattr(opt_hdr, "dll_characteristics", None)
         if bitmask is not None:
             # LIEF 的枚举类：lief.PE.DLL_CHARACTERISTICS
-            return _characteristics_from_bitmask(int(bitmask), getattr(lief.PE, "DLL_CHARACTERISTICS", getattr(lief.PE, "DllCharacteristics", None)))
+            return _characteristics_from_bitmask(int(bitmask), getattr(lief.PE, "DLL_CHARACTERISTICS",
+                                                                       getattr(lief.PE, "DllCharacteristics", None)))
 
         # 3) 退化为空列表
         return []
+
     out = {
         "coff": {
             "timestamp": 0,
@@ -536,7 +540,7 @@ def Header(file_path: str) -> Dict:
         try:
             chars_list = getattr(hdr, "characteristics_list", None)
             if chars_list:
-                out["coff"]["characteristics"] = [ _enum_name(c) for c in chars_list ]
+                out["coff"]["characteristics"] = [_enum_name(c) for c in chars_list]
             else:
                 # 用 bitmask 展开（hdr.characteristics）
                 bitmask = int(getattr(hdr, "characteristics", 0))
@@ -628,7 +632,8 @@ def Header(file_path: str) -> Dict:
                 shc = getattr(opt, "size_of_heap_commit", None)
                 if shc is None:
                     shc = getattr(opt, "sizeofheapcommit", None)
-            out["optional"]["sizeof_heap_commit"] = int(shc) if shc is not None else out["optional"]["sizeof_heap_commit"]
+            out["optional"]["sizeof_heap_commit"] = int(shc) if shc is not None else out["optional"][
+                "sizeof_heap_commit"]
         except Exception:
             pass
 
@@ -907,3 +912,4 @@ def Sections(file_path: str) -> Dict[str, Any]:
         out["datadirectories"] = []
 
     return out
+
