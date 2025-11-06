@@ -23,6 +23,7 @@ except Exception as exc:  # pragma: no cover - provide helpful guidance
 import numpy as np
 
 from core.feature_engineering import extract_features, vectorize_features
+from core.report_builder import build_markdown_report
 
 PE_SUFFIXES = {".exe", ".dll", ".sys", ".bin", ".scr", ".ocx"}
 DEFAULT_MODEL = ROOT / "model.txt"
@@ -47,6 +48,31 @@ SUSPICIOUS_API_HINTS: Dict[str, str] = {
     "cryptimportkey": "导入密钥，可能用于自定义加密流程。",
     "addvectoredexceptionhandler": "注册异常处理器，常被用来隐藏控制流。",
 }
+
+
+def _calculate_detection_strength(
+    malicious_ratio: float,
+    top_probability: float,
+    threshold: float,
+) -> Dict[str, Any]:
+    """Estimate overall model risk level for a prediction batch."""
+
+    score = 0.0
+    score += malicious_ratio * 6.5
+    score += max(0.0, top_probability - threshold) * 12.0
+    score = min(10.0, round(score, 2))
+
+    if score >= 6.5:
+        level = "高风险"
+        guidance = "批量样本中恶意判定占比较高，且最高概率远超阈值。"
+    elif score >= 3.2:
+        level = "中等风险"
+        guidance = "存在一定数量的恶意判定，建议结合动态行为进一步核实。"
+    else:
+        level = "低风险"
+        guidance = "当前批次的恶意判定比例较低，仍需关注高分样本。"
+
+    return {"score": score, "level": level, "guidance": guidance}
 
 BENIGN_API_HINTS: Dict[str, str] = {
     "user32": "大量使用 GUI 相关 API，符合常见应用行为。",
@@ -522,6 +548,7 @@ def MODEL_PREDICT(
     booster = lgb.Booster(model_file=str(model_file))
     processed = 0
     malicious = 0
+    predictions: List[Dict[str, Any]] = []
 
     for idx, file_path in enumerate(files, 1):
         try:
@@ -530,6 +557,14 @@ def MODEL_PREDICT(
             processed += 1
             if verdict == "恶意":
                 malicious += 1
+            predictions.append(
+                {
+                    "file": str(file_path),
+                    "probability": prob,
+                    "display_probability": display_prob,
+                    "verdict": verdict,
+                }
+            )
             message = (
                 f"{idx}/{total_files} {file_path} -> 恶意概率: {display_prob:.6f}% "
                 # f"({verdict}, 恶意概率 {display_prob:.4f}%)"
@@ -544,8 +579,29 @@ def MODEL_PREDICT(
         summary_msg = (
             f"预测完成，共处理 {processed}/{total_files} 个文件，其中 {malicious} 个被判定为恶意。"
         )
+        top_probability = max(item["probability"] for item in predictions)
+        malicious_ratio = malicious / processed if processed else 0.0
+        detection_strength = _calculate_detection_strength(
+            malicious_ratio, top_probability, threshold
+        )
+        malicious_samples = [p for p in predictions if p["verdict"] == "恶意"]
+        benign_samples = [p for p in predictions if p["verdict"] == "良性"]
+        top_suspicious = sorted(
+            malicious_samples, key=lambda item: item["probability"], reverse=True
+        )[: min(5, len(malicious_samples))]
+        most_benign = sorted(
+            benign_samples, key=lambda item: item["probability"]
+        )[: min(5, len(benign_samples))]
+        average_probability = (
+            sum(item["probability"] for item in predictions) / processed
+        )
     else:
         summary_msg = "没有成功的预测结果。"
+        top_probability = 0.0
+        detection_strength = {"score": 0.0, "level": "未知", "guidance": ""}
+        top_suspicious = []
+        most_benign = []
+        average_probability = 0.0
 
     yield PredictionLog(
         type="finished",
@@ -556,6 +612,12 @@ def MODEL_PREDICT(
             "processed": processed,
             "malicious": malicious,
             "failed": total_files - processed,
+            "threshold": threshold,
+            "top_probability": top_probability,
+            "average_probability": average_probability,
+            "detection_strength": detection_strength,
+            "top_suspicious": top_suspicious,
+            "most_benign": most_benign,
         },
     )
 
@@ -564,6 +626,7 @@ def predict_file_with_features(
     file_path: str,
     model_path: Optional[str] = None,
     threshold: float = DEFAULT_THRESHOLD,
+    dynamic_analysis: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     target = Path(file_path).expanduser().resolve()
     if not target.exists() or not target.is_file():
@@ -585,7 +648,7 @@ def predict_file_with_features(
     summary = _analyse_features_for_explanation(features)
     reasoning = _build_reasoning(verdict, summary)
 
-    return {
+    result: Dict[str, Any] = {
         "file_path": str(target),
         "probability": prob,
         "display_probability": display_prob,
@@ -596,6 +659,13 @@ def predict_file_with_features(
         "summary": summary,
         "reasoning": reasoning,
     }
+
+    if dynamic_analysis is not None:
+        result["dynamic_analysis"] = dynamic_analysis
+
+    result["report_markdown"] = build_markdown_report(target, result)
+
+    return result
 
 
 def main() -> None:  # pragma: no cover - manual execution helper

@@ -1,6 +1,9 @@
 
 import time
+from html import escape
 from pathlib import Path
+from typing import Any, Dict, Iterable, List
+
 from .registry import register_task
 
 from core.utils.visualization import get_pe_info_html as FileInfo
@@ -27,6 +30,100 @@ try:
     import pefile
 except Exception:
     pefile = None
+
+
+def _iter_entries(entries: Any) -> List[Any]:
+    if not entries:
+        return []
+    if isinstance(entries, Iterable) and not isinstance(entries, (str, bytes, dict)):
+        return list(entries)
+    return [entries]
+
+
+def _format_prediction_summary_html(summary: Dict[str, Any]) -> str:
+    processed = int(summary.get("processed", 0))
+    malicious = int(summary.get("malicious", 0))
+    failed = int(summary.get("failed", 0))
+    threshold = float(summary.get("threshold", DEFAULT_THRESHOLD))
+    top_probability = float(summary.get("top_probability", 0.0) or 0.0)
+    average_probability = float(summary.get("average_probability", 0.0) or 0.0)
+    detection_strength = summary.get("detection_strength") or {}
+    level = str(detection_strength.get("level", "未知"))
+    score = float(detection_strength.get("score", 0.0) or 0.0)
+    guidance = str(detection_strength.get("guidance", ""))
+
+    malicious_ratio = malicious / processed * 100 if processed else 0.0
+
+    rows = [
+        ("处理文件", f"{processed}"),
+        ("判定为恶意", f"{malicious}"),
+        ("恶意占比", f"{malicious_ratio:.1f}%"),
+        ("预测失败", f"{failed}"),
+        ("阈值", f"{threshold:.4f}"),
+        ("最高原始概率", f"{top_probability:.4f}"),
+        ("平均原始概率", f"{average_probability:.4f}"),
+    ]
+
+    html_lines = [
+        "<html><body style='font-family:\"Microsoft YaHei\",Arial,sans-serif;'>",
+        "<h2 style='margin-top:0;'>模型预测摘要</h2>",
+        "<div style='background:#f7faff;border:1px solid #d0e3ff;border-radius:8px;padding:12px;margin-bottom:16px;'>",
+        f"<p><strong>整体风险评级：</strong>{escape(level)} (得分 {score:.1f}/10)</p>",
+    ]
+
+    if guidance.strip():
+        html_lines.append(f"<p style='color:#555;'>{escape(guidance)}</p>")
+
+    html_lines.append("</div>")
+    html_lines.append(
+        "<table style='border-collapse:collapse;width:100%;margin-bottom:16px;'>"
+        "<thead><tr style='background:#eef4ff;'><th style='text-align:left;padding:6px;border:1px solid #d0e3ff;'>指标" 
+        "</th><th style='text-align:left;padding:6px;border:1px solid #d0e3ff;'>数值</th></tr></thead><tbody>"
+    )
+
+    for label, value in rows:
+        html_lines.append(
+            "<tr>"
+            f"<td style='padding:6px;border:1px solid #d0e3ff;'>{escape(label)}</td>"
+            f"<td style='padding:6px;border:1px solid #d0e3ff;'>{escape(value)}</td>"
+            "</tr>"
+        )
+
+    html_lines.append("</tbody></table>")
+
+    def _render_list(title: str, entries: List[Dict[str, Any]]) -> None:
+        if not entries:
+            return
+        html_lines.append(f"<h3 style='margin-bottom:6px;'>{escape(title)}</h3>")
+        html_lines.append("<ol style='margin-top:0;padding-left:20px;'>")
+        for item in entries:
+            file_path = escape(str(item.get("file", "未知")))
+            verdict = escape(str(item.get("verdict", "")))
+            display_prob = float(item.get("display_probability", 0.0) or 0.0)
+            html_lines.append(
+                "<li>"
+                f"<code>{file_path}</code> — {verdict}，恶意概率 {display_prob:.4f}%"
+                "</li>"
+            )
+        html_lines.append("</ol>")
+
+    suspicious_entries = [
+        item for item in _iter_entries(summary.get("top_suspicious")) if isinstance(item, dict)
+    ]
+    benign_entries = [
+        item for item in _iter_entries(summary.get("most_benign")) if isinstance(item, dict)
+    ]
+
+    _render_list("最值得关注的恶意样本", suspicious_entries)
+    _render_list("模型判定为良性的代表样本", benign_entries)
+
+    html_lines.append(
+        "<p style='color:#888;margin-top:24px;'>以上结果基于当前加载的 LightGBM 模型，"
+        "建议结合动态分析与人工复核。</p>"
+    )
+    html_lines.append("</body></html>")
+
+    return "".join(html_lines)
 
 
 @register_task("文件信息")
@@ -287,6 +384,13 @@ def model_prediction_task(args, progress, text):
                 progress(0)
             elif entry_type == "finished":
                 progress(100)
+                if isinstance(log, PredictionLog) and log.extra:
+                    try:
+                        html = _format_prediction_summary_html(log.extra)
+                    except Exception:
+                        html = ""
+                    if html:
+                        text(html)
     except Exception as exc:
         text(f"模型预测失败: {exc}")
         progress(0)

@@ -51,6 +51,8 @@ class DynamicAnalysisDialog(QtWidgets.QDialog):
         self.setModal(False)
 
         self._worker: DynamicAnalysisWorker | None = None
+        self._latest_raw_data: dict[str, Any] | None = None
+        self._latest_summary: dict[str, Any] | None = None
         self._build_ui()
 
     # ------------------------------------------------------------------
@@ -152,6 +154,8 @@ class DynamicAnalysisDialog(QtWidgets.QDialog):
         self._worker.start()
 
     def _handle_success(self, data: dict) -> None:  # pragma: no cover - GUI slot
+        self._latest_raw_data = data
+        self._latest_summary = self._summarise_behavior(data)
         html = self._format_result_html(data)
         self.result_browser.setHtml(html)
         self.status_label.setText("动态检测完成。")
@@ -167,13 +171,56 @@ class DynamicAnalysisDialog(QtWidgets.QDialog):
         self.status_label.setText(message)
         self.result_browser.append(f"<span style='color:#d32f2f;'>{escape(message)}</span>")
 
+    def latest_analysis(self) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+        """Return the most recent raw result and derived summary."""
+
+        return self._latest_raw_data, self._latest_summary
+
     def _format_result_html(self, data: dict[str, Any]) -> str:
         """Render the returned JSON into a readable HTML report."""
+
+        summary = self._summarise_behavior(data)
 
         sections: list[str] = [
             "<h2 style='margin-bottom:12px;'>动态检测结果</h2>",
             "<p style='color:#666;'>以下内容来自远程沙箱返回的行为报告。</p>",
+            "<div style='background:#f9fbff;border:1px solid #d0e3ff;padding:12px;border-radius:8px;margin-bottom:16px;'>",
+            f"<p><strong>风险评级：</strong>{escape(summary['risk_level'])}"
+            f"（行为得分 {summary['score']:.1f}/10，事件总数 {summary['total_events']}）</p>",
         ]
+
+        if summary["guidance"]:
+            sections.append(f"<p style='color:#555;'>{escape(summary['guidance'])}</p>")
+
+        sections.append("</div>")
+
+        sections.append(
+            "<table style='border-collapse:collapse;width:100%;margin-bottom:16px;'>"
+            "<thead><tr style='background:#eef4ff;'><th style='text-align:left;padding:6px;border:1px solid #d0e3ff;'>行为类别" 
+            "</th><th style='text-align:left;padding:6px;border:1px solid #d0e3ff;'>事件数量</th></tr></thead><tbody>"
+        )
+        for entry in summary["counts"]:
+            sections.append(
+                "<tr>"
+                f"<td style='padding:6px;border:1px solid #d0e3ff;'>{escape(entry['title'])}</td>"
+                f"<td style='padding:6px;border:1px solid #d0e3ff;'>{entry['count']}</td>"
+                "</tr>"
+            )
+        sections.append("</tbody></table>")
+
+        if summary["highlights"]:
+            sections.append("<h3>关键事件</h3>")
+            sections.append("<ul style='padding-left:18px;'>")
+            for item in summary["highlights"]:
+                sections.append(f"<li>{item}</li>")
+            sections.append("</ul>")
+
+        if summary["errors"]:
+            sections.append("<h3>执行异常</h3>")
+            sections.append("<ul style='padding-left:18px;color:#d32f2f;'>")
+            for item in summary["errors"]:
+                sections.append(f"<li>{item}</li>")
+            sections.append("</ul>")
 
         key_mapping = {
             "api_calls": "原始 API 事件",
@@ -200,6 +247,64 @@ class DynamicAnalysisDialog(QtWidgets.QDialog):
             )
 
         return "\n".join(sections)
+
+    def _summarise_behavior(self, data: dict[str, Any]) -> dict[str, Any]:
+        mapping = {
+            "file_operations": ("文件操作", 0.25, 12),
+            "network_activity": ("网络通信", 0.6, 12),
+            "registry_changes": ("注册表改动", 0.35, 12),
+            "process_creations": ("进程创建", 0.5, 10),
+        }
+
+        counts: list[dict[str, Any]] = []
+        highlights: list[str] = []
+        score = 0.0
+        total_events = 0
+
+        def _normalise(entries: Any) -> list[Any]:
+            if not entries:
+                return []
+            if isinstance(entries, Iterable) and not isinstance(entries, (str, bytes, dict)):
+                return list(entries)
+            return [entries]
+
+        for key, (title, weight, cap) in mapping.items():
+            entries = _normalise(data.get(key))
+            count = len(entries)
+            total_events += count
+            counts.append({"title": title, "count": count})
+            score += min(count, cap) * weight
+            for entry in entries[: min(3, len(entries))]:
+                highlights.append(f"<strong>{escape(title)}</strong>：{self._render_entry(entry)}")
+
+        errors = [self._render_entry(item) for item in _normalise(data.get("errors"))]
+
+        # 如果原始 API 调用数量巨大，适当提升得分
+        api_events = _normalise(data.get("api_calls"))
+        if api_events:
+            total_events += len(api_events)
+            score += min(len(api_events), 25) * 0.1
+
+        score = min(10.0, round(score, 2))
+        if score >= 6.5:
+            risk_level = "高风险"
+            guidance = "捕获到大量潜在恶意行为，建议立即隔离并提取IOC。"
+        elif score >= 3.2:
+            risk_level = "中等风险"
+            guidance = "存在可疑的系统改动与网络活动，请结合静态特征进一步研判。"
+        else:
+            risk_level = "低风险"
+            guidance = "动态行为较少，仍需配合模型结果综合评估。"
+
+        return {
+            "counts": counts,
+            "score": score,
+            "risk_level": risk_level,
+            "guidance": guidance,
+            "highlights": highlights,
+            "errors": errors,
+            "total_events": total_events,
+        }
 
     def _render_section(self, title: str, entries: Any) -> str:
         if not entries:
