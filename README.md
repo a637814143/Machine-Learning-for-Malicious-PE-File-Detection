@@ -110,7 +110,7 @@ Upload endpoints mirror the GUI detection flow and reuse the same `core` modules
 
 本项目提供一个端到端的恶意 PE 文件检测工具集，集成了特征提取、LightGBM 建模、PyQt5 桌面应用、HTML 报告和 Flask Web 服务。通过统一代码即可完成从样本采集到模型上线的整条链路。
 
-在线体验地址 http://1.95.159.199，上传 `.exe` 即可生成检测报告。
+在线体验地址 http://1.95.159.199 ,上传 `.exe` 即可生成检测报告。
 
 ![桌面 GUI](PNG/GUI.png)
 
