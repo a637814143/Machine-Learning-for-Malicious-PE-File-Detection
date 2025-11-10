@@ -2,7 +2,13 @@
 from PyQt5 import QtCore
 from pathlib import Path
 import time
-from app.tasks import TASKS
+
+try:
+    from app.tasks import TASKS
+except ModuleNotFoundError:
+    # Support running the app both as a module (`python -m app.main`)
+    # and as a script (`python app/main.py`)
+    from tasks import TASKS
 
 
 class Worker(QtCore.QThread):

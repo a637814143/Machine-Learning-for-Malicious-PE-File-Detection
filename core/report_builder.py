@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+from collections.abc import Iterable as IterableABC
 from typing import Any, Iterable, Sequence
 
 
@@ -37,6 +38,110 @@ def _confidence_label(probability: float, threshold: float) -> str:
     if margin >= 0.07:
         return "中等"
     return "谨慎"
+
+
+def _normalise_entries(entries: Any) -> list[Any]:
+    if not entries:
+        return []
+    if isinstance(entries, IterableABC) and not isinstance(entries, (str, bytes, dict)):
+        return list(entries)
+    return [entries]
+
+
+def _stringify_value(value: Any) -> str:
+    if isinstance(value, dict):
+        return ", ".join(f"{k}={_stringify_value(v)}" for k, v in value.items())
+    if isinstance(value, (list, tuple, set)):
+        return ", ".join(_stringify_value(v) for v in value)
+    return str(value)
+
+
+def _summarise_dynamic(dynamic: dict[str, Any]) -> dict[str, Any]:
+    mapping = {
+        "file_operations": ("文件操作", 0.25, 12),
+        "network_activity": ("网络通信", 0.6, 12),
+        "registry_changes": ("注册表改动", 0.35, 12),
+        "process_creations": ("进程创建", 0.5, 10),
+    }
+
+    counts: list[tuple[str, int]] = []
+    highlights: list[str] = []
+    score = 0.0
+    total_events = 0
+
+    for key, (title, weight, cap) in mapping.items():
+        entries = _normalise_entries(dynamic.get(key))
+        count = len(entries)
+        counts.append((title, count))
+        total_events += count
+        score += min(count, cap) * weight
+        for entry in entries[: min(3, len(entries))]:
+            highlights.append(f"{title}: {_stringify_value(entry)}")
+
+    api_calls = _normalise_entries(dynamic.get("api_calls"))
+    if api_calls:
+        total_events += len(api_calls)
+        score += min(len(api_calls), 25) * 0.1
+
+    errors = [
+        _stringify_value(entry) for entry in _normalise_entries(dynamic.get("errors"))
+    ]
+
+    score = min(10.0, round(score, 2))
+    if score >= 6.5:
+        risk_level = "高风险"
+        guidance = "捕获到大量动态恶意行为，请结合静态分析立即响应。"
+    elif score >= 3.2:
+        risk_level = "中等风险"
+        guidance = "存在可疑的系统改动或网络活动，建议继续跟进。"
+    else:
+        risk_level = "低风险"
+        guidance = "动态行为有限，建议结合模型输出综合判断。"
+
+    return {
+        "counts": counts,
+        "score": score,
+        "risk_level": risk_level,
+        "guidance": guidance,
+        "highlights": highlights,
+        "errors": errors,
+        "total_events": total_events,
+    }
+
+
+def _format_dynamic_markdown(dynamic: dict[str, Any]) -> list[str]:
+    summary = _summarise_dynamic(dynamic)
+    lines = [
+        "## 动态分析摘要",
+        "",
+        f"- 风险评级: **{summary['risk_level']}** (行为得分 {summary['score']:.1f}/10)",
+        f"- 采集到的行为事件总数: {summary['total_events']}",
+    ]
+
+    if summary["guidance"]:
+        lines.append(f"- 建议: {summary['guidance']}")
+
+    lines.append("")
+    lines.extend(
+        _format_table(
+            [["行为类别", "事件数量"], ["---", "---"]]
+            + [[title, str(count)] for title, count in summary["counts"]]
+        )
+    )
+
+    if summary["highlights"]:
+        lines.append("")
+        lines.append("**关键事件样本**")
+        for item in summary["highlights"][:6]:
+            lines.append(f"- {item}")
+
+    if summary["errors"]:
+        lines.append("")
+        lines.append("**执行异常**")
+        for item in summary["errors"][:6]:
+            lines.append(f"- {item}")
+
+    return lines
 
 
 def build_markdown_report(file_path: str | Path, result: dict[str, Any]) -> str:
@@ -291,6 +396,11 @@ def build_markdown_report(file_path: str | Path, result: dict[str, Any]) -> str:
         lines.extend(["", "## 导出符号", ""])
         for symbol in exports[:20]:
             lines.append(f"- {symbol}")
+
+    dynamic_result = result.get("dynamic_analysis")
+    if isinstance(dynamic_result, dict) and dynamic_result:
+        lines.append("")
+        lines.extend(_format_dynamic_markdown(dynamic_result))
 
     lines.append("")
     lines.append("报告生成自：Machine Learning for Malicious PE File Detection 项目")

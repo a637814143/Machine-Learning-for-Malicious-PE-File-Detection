@@ -5,11 +5,19 @@
 """
 
 import sys
+from pathlib import Path
+
+# Ensure the project root is on sys.path so absolute imports work when running `python app/main.py`
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 from PyQt5 import QtWidgets
 from ui.main_window import MachineLearningPEUI
 from scripts.ROOT_PATH import ROOT
 from core.utils.logger import set_log
 from scripts.FILE_NAME import GET_TIME
+from app.resources import icons_rc  # noqa: F401 - ensures Qt resources are registered
 
 
 def main():
