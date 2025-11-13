@@ -1,6 +1,10 @@
-import requests
+import numpy as np
 
+p = r"C:\Users\86133\PycharmProjects\machine\data\processed\npy\2025.11.13_22.43.npz"
 
-files = {'file': open(r"C:\Users\86133\PycharmProjects\machine\data\raw\malware\VirusShare_ef83abda17af0db48b2dd1cd2b89a713.exe", 'rb')}  # 上传的 .exe 文件路径
-r = requests.post('http://192.168.166.129:5000/upload', files=files, timeout=600)
-print(r.json())
+data = np.load(p)  # 加载 .npz 文件
+
+print(data.files)  # 查看里面有哪些数组的键名
+
+for k in data.files:
+    print(k, data[k].shape)

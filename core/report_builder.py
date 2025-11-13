@@ -176,6 +176,8 @@ def build_markdown_report(file_path: str | Path, result: dict[str, Any]) -> str:
     display_prob = _to_float(result.get("display_probability"))
     raw_prob = _to_float(result.get("probability"))
     threshold = _to_float(result.get("threshold"))
+    score_interpretation = result.get("score_interpretation")
+    detection_mode = result.get("detection_mode") or {}
     model_path = result.get("model_path", "未知")
 
     risk_score = _to_float(risk_info.get("score"))
@@ -195,12 +197,26 @@ def build_markdown_report(file_path: str | Path, result: dict[str, Any]) -> str:
         f"- 恶意概率 (展示): **{display_prob:.4f}%**",
         f"- 原始模型得分: {raw_prob:.6f}",
         f"- 判定阈值: {threshold:.4f}",
+    ]
+
+    if detection_mode:
+        mode_label = detection_mode.get("label", "未知模式")
+        mode_desc = detection_mode.get("description", "")
+        extra = f"，{mode_desc}" if mode_desc else ""
+        lines.append(
+            f"- 检测模式: {mode_label} (阈值 {threshold:.4f}{extra})"
+        )
+
+    if score_interpretation:
+        lines.append(f"- 检测结论: {score_interpretation}")
+
+    lines.extend([
         "",
         "## 模型信心与风险评估",
         "",
         f"- 综合风险等级: **{risk_level}**",
         f"- 综合风险得分: **{risk_score:.1f} / 10**",
-    ]
+    ])
 
     confidence = _confidence_label(raw_prob, threshold)
     lines.extend([f"- 判定信心: **{confidence}** (与阈值差距 {abs(raw_prob - threshold):.4f})", ""])

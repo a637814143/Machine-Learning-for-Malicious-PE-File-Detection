@@ -12,7 +12,7 @@ from .dynamic_analysis_dialog import DynamicAnalysisDialog
 from scripts.GET_B import BenignResourceDialog
 from core.utils.logger import set_log
 from scripts.FILE_NAME import GET_TIME
-from scripts.D import predict_file_with_features
+from scripts.D import predict_file_with_features, DETECTION_MODES
 
 
 class MachineLearningPEUI(QtWidgets.QDialog):
@@ -24,6 +24,7 @@ class MachineLearningPEUI(QtWidgets.QDialog):
         self.report_manager = ReportManager()
         self._benign_dialog = None
         self._dynamic_dialog = None
+        self._mode_keys = list(DETECTION_MODES.keys())
         self.setupUi()
 
     def setupUi(self):
@@ -271,16 +272,26 @@ class MachineLearningPEUI(QtWidgets.QDialog):
         )
         self.infoTextBrowser.setOpenExternalLinks(True)
 
-        # 线程数配置
-        self.threadCountLabel = QtWidgets.QLabel("线程数:", self)
-        self.threadCountLabel.setGeometry(1245 + 500 - 100, 810 - 50, 60, 40)
+        # 线程数与检测模式配置
+        base_x = 1245 + 500 - 100 - 200 - 22
+        base_y = 810 - 50
+
+        self.threadCountLabel = QtWidgets.QLabel("线程数", self)
+        self.threadCountLabel.setGeometry(base_x, base_y, 60, 40)
 
         self.threadCountSpinBox = QtWidgets.QSpinBox(self)
-        self.threadCountSpinBox.setGeometry(1305 + 500 - 100, 810 - 50, 80, 40)
+        self.threadCountSpinBox.setGeometry(base_x + 60, base_y, 80, 40)
         self.threadCountSpinBox.setMinimum(1)
         self.threadCountSpinBox.setMaximum(100)
         self.threadCountSpinBox.setValue(8)  # 默认8个线程
         self.threadCountSpinBox.setToolTip("设置特征提取使用的线程数（1-100）")
+
+        self.modeLabel = QtWidgets.QLabel("检测模式", self)
+        self.modeLabel.setGeometry(base_x + 160, base_y, 80, 40)
+
+        self.modeComboBox = QtWidgets.QComboBox(self)
+        self.modeComboBox.setGeometry(base_x + 240, base_y, 220, 40)
+        self._init_detection_mode_selector()
 
     def _setup_middle_labels(self):
         """设置中间标签"""
@@ -289,6 +300,31 @@ class MachineLearningPEUI(QtWidgets.QDialog):
 
         self.middleLabel_progress = QtWidgets.QLabel("进度展示区", self)
         self.middleLabel_progress.setGeometry(1570, 140, 111, 21)
+
+
+    def _init_detection_mode_selector(self):
+        self.modeComboBox.clear()
+        for key in self._mode_keys:
+            mode = DETECTION_MODES.get(key)
+            if not mode:
+                continue
+            display = f"{mode.label} · 阈值 {mode.threshold:.4f}"
+            index = self.modeComboBox.count()
+            self.modeComboBox.addItem(display, key)
+            self.modeComboBox.setItemData(index, mode.description, QtCore.Qt.ToolTipRole)
+        if self.modeComboBox.count():
+            self.modeComboBox.setCurrentIndex(0)
+
+    def _current_detection_mode(self):
+        key = self.modeComboBox.currentData()
+        if key not in DETECTION_MODES:
+            key = self._mode_keys[0]
+            try:
+                index = self._mode_keys.index(key)
+                self.modeComboBox.setCurrentIndex(index)
+            except ValueError:
+                pass
+        return key, DETECTION_MODES.get(key, next(iter(DETECTION_MODES.values())))
 
     def _bind_events(self):
         """绑定事件"""
@@ -344,7 +380,13 @@ class MachineLearningPEUI(QtWidgets.QDialog):
             self.open_dynamic_analysis()
             return
 
-        params = self._get_params()
+        params = list(self._get_params())
+
+        if task_name == "模型预测":
+            mode_key, mode = self._current_detection_mode()
+            params.append(f"MODE::{mode_key}")
+            params.append(f"THRESH::{mode.threshold:.6f}")
+
 
         # 检查必要参数
         if task_name == "文件信息" and not self.useInputCheckBox.isChecked():
@@ -361,7 +403,7 @@ class MachineLearningPEUI(QtWidgets.QDialog):
         if task_name in self.progressBars:
             self.progressBars[task_name].setValue(0)
 
-        worker = Worker(task_name, params)
+        worker = Worker(task_name, tuple(params))
         self.workers[task_name] = worker
 
         if task_name in self.progressBars:
@@ -440,7 +482,12 @@ class MachineLearningPEUI(QtWidgets.QDialog):
         self._append_result_text(f"正在分析 {target.name} ……")
 
         try:
-            result = predict_file_with_features(str(target))
+            mode_key, mode = self._current_detection_mode()
+            result = predict_file_with_features(
+                str(target),
+                threshold=mode.threshold,
+                mode_key=mode_key,
+            )
         except FileNotFoundError as exc:
             self._append_result_text(str(exc))
             return
@@ -462,7 +509,17 @@ class MachineLearningPEUI(QtWidgets.QDialog):
         )
         if threshold is not None:
             summary_line += f"，判定阈值 {threshold:.4f}"
+
+        detection_mode = result.get("detection_mode") or {}
+        mode_label = detection_mode.get("label") or "默认模式"
+        mode_threshold = float(detection_mode.get("threshold", threshold or 0.0))
+        summary_line += f"，检测模式 {mode_label} (阈值 {mode_threshold:.4f})"
+
         self._append_result_text(summary_line)
+
+        interpretation = result.get("score_interpretation")
+        if interpretation:
+            self._append_result_text(f"检测结论: {interpretation}")
 
         markdown_content = self._build_markdown_report(Path(result.get("file_path", target)), result)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -537,6 +594,10 @@ class MachineLearningPEUI(QtWidgets.QDialog):
         raw_prob = result.get("probability", 0.0)
         threshold = result.get("threshold", 0.0)
         model_path = result.get("model_path", "未知")
+        detection_mode = result.get("detection_mode") or {}
+        mode_label = detection_mode.get("label", "默认模式")
+        mode_desc = detection_mode.get("description", "")
+        score_interpretation = result.get("score_interpretation")
 
         risk_score = float(risk_info.get("score", 0.0) or 0.0)
         risk_level = risk_info.get("level", "未知")
@@ -555,12 +616,22 @@ class MachineLearningPEUI(QtWidgets.QDialog):
             f"- 恶意概率 (展示): **{display_prob:.4f}%**",
             f"- 原始模型得分: {raw_prob:.6f}",
             f"- 判定阈值: {threshold:.4f}",
+        ]
+
+        if mode_label:
+            extra = f"，{mode_desc}" if mode_desc else ""
+            lines.append(f"- 检测模式: {mode_label} (阈值 {threshold:.4f}{extra})")
+
+        if score_interpretation:
+            lines.append(f"- 检测结论: {score_interpretation}")
+
+        lines.extend([
             "",
             "## 模型信心与风险评估",
             "",
             f"- 综合风险等级: **{risk_level}**",
             f"- 综合风险得分: **{risk_score:.1f} / 10**",
-        ]
+        ])
 
         margin = abs(raw_prob - threshold)
         if margin >= 0.25:

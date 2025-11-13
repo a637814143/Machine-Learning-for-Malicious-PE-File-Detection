@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 """LightGBM-based model prediction utilities used by the GUI."""
 
@@ -29,6 +28,40 @@ PE_SUFFIXES = {".exe", ".dll", ".sys", ".bin", ".scr", ".ocx"}
 DEFAULT_MODEL = ROOT / "model.txt"
 MAX_TO_SCAN = 1500
 DEFAULT_THRESHOLD = 0.0385
+
+
+@dataclass(frozen=True)
+class DetectionMode:
+    """Represents a selectable detection profile."""
+
+    key: str
+    label: str
+    description: str
+    threshold: float
+
+
+DETECTION_MODES: Dict[str, DetectionMode] = {
+    "high_precision": DetectionMode(
+        key="high_precision",
+        label="高精度",
+        description="对恶意程序容忍度一般，误判概率小",
+        threshold=DEFAULT_THRESHOLD,
+    ),
+    "high_sensitivity": DetectionMode(
+        key="high_sensitivity",
+        label="高敏",
+        description="对恶意程序低容忍度，误判率较高",
+        threshold=0.0305,
+    ),
+}
+
+
+def resolve_detection_mode(key: Optional[str]) -> DetectionMode:
+    """Return the configured detection mode, defaulting to 高精度."""
+
+    if not key:
+        return DETECTION_MODES["high_precision"]
+    return DETECTION_MODES.get(key, DETECTION_MODES["high_precision"])
 
 SUSPICIOUS_API_HINTS: Dict[str, str] = {
     "virtualalloc": "调用 VirtualAlloc 在内存中划分可执行区域，常见于自解压或恶意注入。",
@@ -131,7 +164,7 @@ def _predict_single(booster: "lgb.Booster", file_path: Path, threshold: float) -
 
 
 def _display_probability(prob: float, threshold: float) -> float:
-    """Map raw model probability to a user friendly percentage.
+    """Map raw model probability to a user-friendly percentage.
 
     The mapping guarantees:
     * values grow strictly as the raw probability increases;
@@ -166,6 +199,21 @@ def _display_probability(prob: float, threshold: float) -> float:
         percentage = 50.0001 - reduction * 49.9997
 
     return min(99.9999, max(0.0001, percentage))
+
+
+def interpret_probability_score(prob: float, threshold: float) -> str:
+    """Return a textual interpretation based on the raw probability."""
+
+    prob = float(prob)
+    if prob < 0.0105:
+        return "该程序极大可能是良性文件"
+    if prob < threshold:
+        return "模型判定结果为良性，但仍需注意，在安全且隔离的环境中测试最佳"
+    if prob < 0.1:
+        return "模型判定为恶意，一些加密/加壳的较大程序会被误判为恶意，建议在安全且隔离的环境中测试，或进行动态检测"
+    if prob < 0.2:
+        return "该程序大概率是恶意程序！"
+    return "高危程序！请立即删除"
 
 
 def _analyse_features_for_explanation(features: Dict[str, Any]) -> Dict[str, Any]:
@@ -488,32 +536,11 @@ def MODEL_PREDICT(
     input_path: str,
     output_dir: Optional[str] = None,
     model_path: Optional[str] = None,
-    threshold: float = DEFAULT_THRESHOLD,
+    threshold: Optional[float] = None,
     max_to_scan: int = MAX_TO_SCAN,
+    mode_key: Optional[str] = None,
 ) -> Iterator[PredictionLog]:
-    """Run model prediction for PE files under ``input_path``.
-
-    Parameters
-    ----------
-    input_path:
-        File or directory to scan.
-    output_dir:
-        Optional directory reserved for future extensions.  The current
-        implementation keeps prediction results in memory only and does not
-        write any files.
-    model_path:
-        Optional custom LightGBM model path.  Defaults to ``model.txt`` at the
-        repository root.
-    threshold:
-        Probability threshold distinguishing malicious vs benign.
-    max_to_scan:
-        Maximum number of files to analyse in one run.
-
-    Yields
-    ------
-    PredictionLog
-        Structured log entries that describe progress for GUI display.
-    """
+    """Run model prediction for PE files under ``input_path``."""
 
     target = Path(input_path).expanduser().resolve()
     output_root: Optional[Path] = None
@@ -523,15 +550,23 @@ def MODEL_PREDICT(
 
     model_file = Path(model_path).expanduser().resolve() if model_path else DEFAULT_MODEL
     if not model_file.exists():
-        raise FileNotFoundError(f"未找到模型文件: {model_file}")
+        raise FileNotFoundError(f"未找到模型文�? {model_file}")
+
+    mode = resolve_detection_mode(mode_key)
+    effective_threshold = threshold if threshold is not None else mode.threshold
 
     files = collect_pe_files(target)
     total_files = min(len(files), max_to_scan)
     files = files[:total_files]
 
+    start_message = (
+        f"开始检测?{target}\n"
+        f"使用模型 {model_file}\n"
+        f"检测模式: {mode.label} (阈值 {effective_threshold:.4f}，{mode.description})"
+    )
     yield PredictionLog(
         type="start",
-        message=f"开始扫描 {target}\n使用模型 {model_file}",
+        message=start_message,
         total=total_files,
         extra={"output_dir": str(output_root) if output_root else None},
     )
@@ -539,7 +574,7 @@ def MODEL_PREDICT(
     if total_files == 0:
         yield PredictionLog(
             type="finished",
-            message="未找到任何可识别的 PE 文件。",
+            message="未找到任何可识别的PE文件",
             total=0,
             extra={"output": None, "processed": 0, "malicious": 0},
         )
@@ -552,8 +587,9 @@ def MODEL_PREDICT(
 
     for idx, file_path in enumerate(files, 1):
         try:
-            prob, verdict = _predict_single(booster, file_path, threshold)
-            display_prob = _display_probability(prob, threshold)
+            prob, verdict = _predict_single(booster, file_path, effective_threshold)
+            display_prob = _display_probability(prob, effective_threshold)
+            score_interpretation = interpret_probability_score(prob, effective_threshold)
             processed += 1
             if verdict == "恶意":
                 malicious += 1
@@ -563,26 +599,28 @@ def MODEL_PREDICT(
                     "probability": prob,
                     "display_probability": display_prob,
                     "verdict": verdict,
+                    "score_interpretation": score_interpretation,
                 }
             )
             message = (
-                f"{idx}/{total_files} {file_path} -> 恶意概率: {display_prob:.6f}% "
-                # f"({verdict}, 恶意概率 {display_prob:.4f}%)"
+                f"{idx}/{total_files} {file_path} -> 原始得分 {prob:.6f} "
+                f"(展示概率 {display_prob:.4f}%) | {score_interpretation}"
             )
             log_type = "progress"
-        except Exception as exc:  # pragma: no cover - runtime feedback
+        except Exception as exc:
             message = f"{idx}/{total_files} {file_path} -> 预测失败: {exc}"
             log_type = "error"
         yield PredictionLog(type=log_type, message=message, index=idx, total=total_files)
 
     if processed:
         summary_msg = (
-            f"预测完成，共处理 {processed}/{total_files} 个文件，其中 {malicious} 个被判定为恶意。"
+            f"预测完成，共处理 {processed}/{total_files} 个文件，其中 {malicious} 个被判定为恶意"
+            f" (模式: {mode.label}, 阈�?{effective_threshold:.4f})"
         )
         top_probability = max(item["probability"] for item in predictions)
         malicious_ratio = malicious / processed if processed else 0.0
         detection_strength = _calculate_detection_strength(
-            malicious_ratio, top_probability, threshold
+            malicious_ratio, top_probability, effective_threshold
         )
         malicious_samples = [p for p in predictions if p["verdict"] == "恶意"]
         benign_samples = [p for p in predictions if p["verdict"] == "良性"]
@@ -596,7 +634,7 @@ def MODEL_PREDICT(
             sum(item["probability"] for item in predictions) / processed
         )
     else:
-        summary_msg = "没有成功的预测结果。"
+        summary_msg = "没有成功的预测结果"
         top_probability = 0.0
         detection_strength = {"score": 0.0, "level": "未知", "guidance": ""}
         top_suspicious = []
@@ -612,21 +650,26 @@ def MODEL_PREDICT(
             "processed": processed,
             "malicious": malicious,
             "failed": total_files - processed,
-            "threshold": threshold,
+            "threshold": effective_threshold,
             "top_probability": top_probability,
             "average_probability": average_probability,
             "detection_strength": detection_strength,
             "top_suspicious": top_suspicious,
             "most_benign": most_benign,
+            "detection_mode": {
+                "key": mode.key,
+                "label": mode.label,
+                "description": mode.description,
+                "threshold": effective_threshold,
+            },
         },
     )
-
-
 def predict_file_with_features(
     file_path: str,
     model_path: Optional[str] = None,
-    threshold: float = DEFAULT_THRESHOLD,
+    threshold: Optional[float] = None,
     dynamic_analysis: Optional[Dict[str, Any]] = None,
+    mode_key: Optional[str] = None,
 ) -> Dict[str, Any]:
     target = Path(file_path).expanduser().resolve()
     if not target.exists() or not target.is_file():
@@ -634,7 +677,10 @@ def predict_file_with_features(
 
     model_file = Path(model_path).expanduser().resolve() if model_path else DEFAULT_MODEL
     if not model_file.exists():
-        raise FileNotFoundError(f"未找到模型文件: {model_file}")
+        raise FileNotFoundError(f"未找到模型文件 {model_file}")
+
+    mode = resolve_detection_mode(mode_key)
+    effective_threshold = threshold if threshold is not None else mode.threshold
 
     features = extract_features(target)
     vector = vectorize_features(features)
@@ -642,8 +688,9 @@ def predict_file_with_features(
 
     booster = lgb.Booster(model_file=str(model_file))
     prob = float(booster.predict(arr)[0])
-    verdict = "恶意" if prob >= threshold else "良性"
-    display_prob = _display_probability(prob, threshold)
+    verdict = "恶意" if prob >= effective_threshold else "良性"
+    display_prob = _display_probability(prob, effective_threshold)
+    score_interpretation = interpret_probability_score(prob, effective_threshold)
 
     summary = _analyse_features_for_explanation(features)
     reasoning = _build_reasoning(verdict, summary)
@@ -652,12 +699,19 @@ def predict_file_with_features(
         "file_path": str(target),
         "probability": prob,
         "display_probability": display_prob,
-        "threshold": threshold,
+        "threshold": effective_threshold,
         "verdict": verdict,
         "model_path": str(model_file),
         "features": features,
         "summary": summary,
         "reasoning": reasoning,
+        "score_interpretation": score_interpretation,
+        "detection_mode": {
+            "key": mode.key,
+            "label": mode.label,
+            "description": mode.description,
+            "threshold": effective_threshold,
+        },
     }
 
     if dynamic_analysis is not None:
@@ -675,7 +729,18 @@ def main() -> None:  # pragma: no cover - manual execution helper
     parser.add_argument("input", help="待扫描的文件或目录")
     parser.add_argument("output", help="结果保存目录")
     parser.add_argument("--model", help="LightGBM模型路径", default=None)
-    parser.add_argument("--threshold", type=float, default=DEFAULT_THRESHOLD)
+    parser.add_argument(
+        "--threshold",
+        type=float,
+        default=None,
+        help="自定义判定阈值（默认随检测模式变化）",
+    )
+    parser.add_argument(
+        "--mode",
+        choices=list(DETECTION_MODES.keys()),
+        default="high_precision",
+        help="检测模式：high_precision 或 high_sensitivity",
+    )
     parser.add_argument("--max", type=int, default=MAX_TO_SCAN)
     args = parser.parse_args()
 
@@ -685,10 +750,7 @@ def main() -> None:  # pragma: no cover - manual execution helper
         model_path=args.model,
         threshold=args.threshold,
         max_to_scan=args.max,
+        mode_key=args.mode,
     ):
         if log.message:
             print(log.message)
-
-
-if __name__ == "__main__":  # pragma: no cover - CLI entry
-    main()

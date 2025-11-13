@@ -1,5 +1,3 @@
-"""Utility helpers for feature extraction and transformation."""
-
 from __future__ import annotations
 import hashlib
 import heapq
@@ -125,7 +123,7 @@ def Label(file_path: str) -> int:
     :param file_path:
     :return:
     """
-    label = 1 if 'malware' in file_path else 0
+    label = 1 if 'VirusShare' in file_path else 0
 
     return label
 

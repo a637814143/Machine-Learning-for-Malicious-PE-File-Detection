@@ -46,6 +46,10 @@ def _format_prediction_summary_html(summary: Dict[str, Any]) -> str:
     malicious = int(summary.get("malicious", 0))
     failed = int(summary.get("failed", 0))
     threshold = float(summary.get("threshold", DEFAULT_THRESHOLD))
+    detection_mode = summary.get("detection_mode") or {}
+    mode_label = str(detection_mode.get("label", "默认模式"))
+    mode_desc = str(detection_mode.get("description", ""))
+
     top_probability = float(summary.get("top_probability", 0.0) or 0.0)
     average_probability = float(summary.get("average_probability", 0.0) or 0.0)
     detection_strength = summary.get("detection_strength") or {}
@@ -60,10 +64,14 @@ def _format_prediction_summary_html(summary: Dict[str, Any]) -> str:
         ("判定为恶意", f"{malicious}"),
         ("恶意占比", f"{malicious_ratio:.1f}%"),
         ("预测失败", f"{failed}"),
+        ("检测模式", f"{mode_label} (阈值 {threshold:.4f})"),
         ("阈值", f"{threshold:.4f}"),
         ("最高原始概率", f"{top_probability:.4f}"),
         ("平均原始概率", f"{average_probability:.4f}"),
     ]
+
+    if mode_desc.strip():
+        rows.insert(5, ("模式说明", mode_desc.strip()))
 
     html_lines = [
         "<html><body style='font-family:\"Microsoft YaHei\",Arial,sans-serif;'>",
@@ -101,19 +109,16 @@ def _format_prediction_summary_html(summary: Dict[str, Any]) -> str:
             file_path = escape(str(item.get("file", "未知")))
             verdict = escape(str(item.get("verdict", "")))
             display_prob = float(item.get("display_probability", 0.0) or 0.0)
-            html_lines.append(
+            interpretation = escape(str(item.get("score_interpretation", "") or ""))
+            entry_html = (
                 "<li>"
-                f"<code>{file_path}</code> — {verdict}，恶意概率 {display_prob:.4f}%"
-                "</li>"
+                f"<code>{file_path}</code> -> {verdict}，恶意概率 {display_prob:.4f}%"
             )
+            if interpretation:
+                entry_html += f"；{interpretation}"
+            entry_html += "</li>"
+            html_lines.append(entry_html)
         html_lines.append("</ol>")
-
-    suspicious_entries = [
-        item for item in _iter_entries(summary.get("top_suspicious")) if isinstance(item, dict)
-    ]
-    benign_entries = [
-        item for item in _iter_entries(summary.get("most_benign")) if isinstance(item, dict)
-    ]
 
     _render_list("最值得关注的恶意样本", suspicious_entries)
     _render_list("模型判定为良性的代表样本", benign_entries)
@@ -354,10 +359,31 @@ def model_prediction_task(args, progress, text):
         text("需要提供输入路径")
         return
 
+    mode_key = None
+    threshold_override = None
+    cleaned_args = []
+    for arg in args:
+        if isinstance(arg, str) and arg.startswith("MODE::"):
+            mode_key = arg.split("MODE::", 1)[1] or None
+            continue
+        if isinstance(arg, str) and arg.startswith("THRESH::"):
+            try:
+                threshold_override = float(arg.split("THRESH::", 1)[1])
+            except ValueError:
+                threshold_override = None
+            continue
+        cleaned_args.append(arg)
+
+    args = tuple(cleaned_args)
     src = args[0]
     dst = next((a for a in args[1:] if a and not str(a).isdigit()), None)
     try:
-        logs = MODEL_PREDICT(src, dst)
+        logs = MODEL_PREDICT(
+            src,
+            dst,
+            threshold=threshold_override,
+            mode_key=mode_key,
+        )
     except Exception as exc:
         text(f"模型预测失败: {exc}")
         return
