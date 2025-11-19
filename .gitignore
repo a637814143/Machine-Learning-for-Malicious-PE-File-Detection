@@ -1,0 +1,14 @@
+# 忽略 .idea/ 文件夹
+.idea/
+
+# 忽略 .venv/ 文件夹
+.venv/
+
+# 忽略所有包含 'model' 的 .txt 文件
+**/*model*.txt
+
+**/*.jsonl
+**/*.npz
+**/*.npy
+**/*.exe
+**/*.dll

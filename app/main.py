@@ -1,0 +1,53 @@
+# app/main.py
+"""
+基于机器学习的恶意PE文件检测系统
+主程序入口
+"""
+
+import sys
+from pathlib import Path
+
+# Ensure the project root is on sys.path so absolute imports work when running `python app/main.py`
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from PyQt5 import QtWidgets
+from ui.main_window import MachineLearningPEUI
+from scripts.ROOT_PATH import ROOT
+from core.utils.logger import set_log
+from scripts.FILE_NAME import GET_TIME
+
+
+def main():
+    """主函数"""
+    try:
+        # 创建Qt应用
+        app = QtWidgets.QApplication(sys.argv)
+
+        # 设置应用信息
+        app.setApplicationName("恶意PE文件检测系统")
+        app.setApplicationVersion("1.0.0")
+        app.setOrganizationName("大理大学")
+
+        # 随机皮肤
+        qss = [str(i + 1) + '.qss' for i in range(10)]
+        qss_path = ROOT / "app" / "styles" / "10.qss"
+        set_log(GET_TIME(f"[INFO] 启动GUI并使用了{qss_path}"))
+        qss_file = open(qss_path, 'r').read()
+        app.setStyleSheet(qss_file)
+
+        # 创建主窗口
+        main_window = MachineLearningPEUI()
+        main_window.show()
+
+        # 运行应用
+        sys.exit(app.exec_())
+
+    except Exception as e:
+        print(f"程序启动失败: {e}")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
