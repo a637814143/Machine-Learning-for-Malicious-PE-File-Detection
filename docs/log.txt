@@ -43,3 +43,4 @@
 2025/11/19 21:07:55 [DEBUG] select_input_file called
 2025/11/19 21:08:46 [DEBUG] select_output_file called
 2025/11/19 21:08:50 [DEBUG] select_validation_vectors called
+2025/11/19 23:28:29 [INFO] 启动GUI并使用了C:\Python Projects\Machine-Learning-for-Malicious-PE-File-Detection-main\app\styles\10.qss
