@@ -13,6 +13,7 @@ from scripts.GET_B import BenignResourceDialog
 from core.utils.logger import set_log
 from scripts.FILE_NAME import GET_TIME
 from scripts.D import predict_file_with_features, DETECTION_MODES
+from scripts.ROOT_PATH import ROOT
 
 
 class MachineLearningPEUI(QtWidgets.QDialog):
@@ -20,6 +21,7 @@ class MachineLearningPEUI(QtWidgets.QDialog):
 
     def __init__(self):
         super().__init__()
+        self._settings = QtCore.QSettings()
         self.workers = {}
         self.report_manager = ReportManager()
         self._benign_dialog = None
@@ -249,7 +251,7 @@ class MachineLearningPEUI(QtWidgets.QDialog):
 
         # 底部信息
         self.infoTextBrowser = QtWidgets.QTextBrowser(self)
-        self.infoTextBrowser.setGeometry(20, 850, 1880, 120)
+        self.infoTextBrowser.setGeometry(20, 850, 1370, 120)
         self.infoTextBrowser.setHtml(
             """
     <div style="text-align:center;
@@ -275,6 +277,20 @@ class MachineLearningPEUI(QtWidgets.QDialog):
         # 线程数与检测模式配置
         base_x = 1245 + 500 - 100 - 200 - 22
         base_y = 810 - 50
+
+        model_y = base_y - 50
+        self.modelPathLabel = QtWidgets.QLabel("模型文件", self)
+        self.modelPathLabel.setGeometry(base_x, model_y, 80, 40)
+
+        self.modelPathLineEdit = QtWidgets.QLineEdit(self)
+        self.modelPathLineEdit.setGeometry(base_x + 80, model_y, 280, 40)
+        self.modelPathLineEdit.setPlaceholderText("可选：选择 LightGBM 模型文件")
+        default_model_path = self._resolve_default_model_path()
+        if default_model_path:
+            self.modelPathLineEdit.setText(default_model_path)
+
+        self.modelBrowseButton = QtWidgets.QPushButton("选择", self)
+        self.modelBrowseButton.setGeometry(base_x + 370, model_y, 80, 40)
 
         self.threadCountLabel = QtWidgets.QLabel("线程数", self)
         self.threadCountLabel.setGeometry(base_x, base_y, 60, 40)
@@ -343,6 +359,7 @@ class MachineLearningPEUI(QtWidgets.QDialog):
         self.selectInputButton.clicked.connect(self.select_input_file)
         self.selectOutputButton.clicked.connect(self.select_output_file)
         self.validationBrowseButton.clicked.connect(self.select_validation_vectors)
+        self.modelBrowseButton.clicked.connect(self.select_model_file)
 
         # 功能按钮
         for btn, name in self.button_task_map.items():
@@ -352,6 +369,35 @@ class MachineLearningPEUI(QtWidgets.QDialog):
         self.btn_download_report.clicked.connect(self.download_report)
         self.btn_view_logs.clicked.connect(self.view_logs)
         self.btn_clear_text.clicked.connect(self.clear_result_text)
+
+        # 记住模型文件路径
+        self.modelPathLineEdit.editingFinished.connect(self._handle_model_path_edited)
+
+    def _resolve_default_model_path(self) -> str:
+        saved_path = self._settings.value("modelPath", type=str)
+        if saved_path:
+            try:
+                saved = Path(saved_path)
+            except OSError:
+                saved = None
+            else:
+                if saved and saved.exists():
+                    return str(saved)
+
+        fallback = ROOT / "model.txt"
+        if fallback.exists():
+            return str(fallback)
+        return ""
+
+    def _handle_model_path_edited(self):
+        path = self.modelPathLineEdit.text().strip()
+        self._remember_model_path(path)
+
+    def _remember_model_path(self, path: str):
+        if path:
+            self._settings.setValue("modelPath", path)
+        else:
+            self._settings.remove("modelPath")
 
     # --- 文件选择槽 ---
     def select_input_file(self):
@@ -378,6 +424,18 @@ class MachineLearningPEUI(QtWidgets.QDialog):
         )
         if path:
             self.validationLineEdit.setText(path)
+
+    def select_model_file(self):
+        """选择模型文件"""
+        set_log(GET_TIME("[DEBUG] select_model_file called"))
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "选择 LightGBM 模型文件",
+            filter="LightGBM 模型 (*.txt *.model *.gbm);;所有文件 (*)",
+        )
+        if path:
+            self.modelPathLineEdit.setText(path)
+            self._remember_model_path(path)
 
     def _get_params(self):
         """获取参数"""
@@ -409,6 +467,9 @@ class MachineLearningPEUI(QtWidgets.QDialog):
             mode_key, mode = self._current_detection_mode()
             params.append(f"MODE::{mode_key}")
             params.append(f"THRESH::{mode.threshold:.6f}")
+            model_path = self.modelPathLineEdit.text().strip()
+            if model_path:
+                params.append(f"MODEL::{model_path}")
 
         if task_name == "训练模型":
             validation_path = self.validationLineEdit.text().strip()
@@ -509,10 +570,12 @@ class MachineLearningPEUI(QtWidgets.QDialog):
 
         self._append_result_text(f"正在分析 {target.name} ……")
 
+        model_override = self.modelPathLineEdit.text().strip() or None
         try:
             mode_key, mode = self._current_detection_mode()
             result = predict_file_with_features(
                 str(target),
+                model_path=model_override,
                 threshold=mode.threshold,
                 mode_key=mode_key,
             )

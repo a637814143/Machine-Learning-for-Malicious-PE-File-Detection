@@ -34,6 +34,7 @@
 2025/11/18 23:41:32 [DEBUG] select_validation_vectors called
 2025/11/18 23:43:21 [INFO] 启动GUI并使用了C:\Python Projects\Machine-Learning-for-Malicious-PE-File-Detection-main\app\styles\10.qss
 2025/11/18 23:43:23 [DEBUG] select_input_file called
+
 2025/11/18 23:43:29 [DEBUG] select_output_file called
 2025/11/18 23:43:33 [DEBUG] select_validation_vectors called
 2025/11/19 20:59:04 [INFO] 启动GUI并使用了C:\Python Projects\Machine-Learning-for-Malicious-PE-File-Detection-main\app\styles\10.qss
@@ -44,3 +45,25 @@
 2025/11/19 21:08:46 [DEBUG] select_output_file called
 2025/11/19 21:08:50 [DEBUG] select_validation_vectors called
 2025/11/19 23:28:29 [INFO] 启动GUI并使用了C:\Python Projects\Machine-Learning-for-Malicious-PE-File-Detection-main\app\styles\10.qss
+2025/11/22 13:18:59 [INFO] 启动GUI并使用了C:\Python Projects\Machine-Learning-for-Malicious-PE-File-Detection-main\app\styles\10.qss
+2025/11/22 13:33:47 [INFO] 启动GUI并使用了C:\Python Projects\Machine-Learning-for-Malicious-PE-File-Detection-main\app\styles\10.qss
+2025/11/22 13:34:02 [DEBUG] select_input_file called
+2025/11/22 13:34:28 [DEBUG] select_model_file called
+2025/11/22 13:36:10 [DEBUG] select_model_file called
+2025/11/22 13:39:47 [DEBUG] select_input_file called
+2025/11/22 13:40:01 [INFO] Markdown file saved at C:\Python Projects\Machine-Learning-for-Malicious-PE-File-Detection-main\docs\git-cmd_report_20251122_134001.md
+2025/11/22 23:55:16 [INFO] 启动GUI并使用了C:\Python Projects\Machine-Learning-for-Malicious-PE-File-Detection-main\app\styles\10.qss
+2025/11/24 14:38:21 [INFO] 启动GUI并使用了C:\Python Projects\Machine-Learning-for-Malicious-PE-File-Detection-main\app\styles\10.qss
+2025/11/24 14:43:07 [DEBUG] select_input_file called
+2025/11/24 16:32:31 [INFO] 启动GUI并使用了C:\Python Projects\Machine-Learning-for-Malicious-PE-File-Detection-main\app\styles\10.qss
+2025/11/24 21:30:43 [INFO] 启动GUI并使用了C:\Python Projects\Machine-Learning-for-Malicious-PE-File-Detection-main\app\styles\10.qss
+2025/11/24 21:31:52 [DEBUG] select_input_file called
+2025/11/24 22:16:30 [INFO] 启动GUI并使用了C:\Python Projects\Machine-Learning-for-Malicious-PE-File-Detection-main\app\styles\10.qss
+2025/11/25 13:46:09 [INFO] 启动GUI并使用了C:\Python Projects\Machine-Learning-for-Malicious-PE-File-Detection-main\app\styles\10.qss
+2025/11/25 16:07:44 [INFO] 启动GUI并使用了C:\Python Projects\Machine-Learning-for-Malicious-PE-File-Detection-main\app\styles\10.qss
+2025/11/25 16:14:39 [INFO] 启动GUI并使用了C:\Python Projects\Machine-Learning-for-Malicious-PE-File-Detection-main\app\styles\10.qss
+2025/11/25 16:14:50 [INFO] 启动GUI并使用了C:\Python Projects\Machine-Learning-for-Malicious-PE-File-Detection-main\app\styles\10.qss
+2025/11/25 16:15:00 [INFO] 启动GUI并使用了C:\Python Projects\Machine-Learning-for-Malicious-PE-File-Detection-main\app\styles\10.qss
+2025/11/25 16:15:15 [INFO] 启动GUI并使用了C:\Python Projects\Machine-Learning-for-Malicious-PE-File-Detection-main\app\styles\10.qss
+2025/11/25 16:15:25 [INFO] 启动GUI并使用了C:\Python Projects\Machine-Learning-for-Malicious-PE-File-Detection-main\app\styles\10.qss
+2025/11/25 16:15:34 [INFO] 启动GUI并使用了C:\Python Projects\Machine-Learning-for-Malicious-PE-File-Detection-main\app\styles\10.qss

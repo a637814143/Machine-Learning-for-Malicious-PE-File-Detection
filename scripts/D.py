@@ -552,7 +552,7 @@ def MODEL_PREDICT(
 
     model_file = Path(model_path).expanduser().resolve() if model_path else DEFAULT_MODEL
     if not model_file.exists():
-        raise FileNotFoundError(f"未找到模型文�? {model_file}")
+        raise FileNotFoundError(f"未找到模型文件 {model_file}")
 
     mode = resolve_detection_mode(mode_key)
     effective_threshold = threshold if threshold is not None else mode.threshold
@@ -562,8 +562,8 @@ def MODEL_PREDICT(
     files = files[:total_files]
 
     start_message = (
-        f"开始检测?{target}\n"
-        f"使用模型 {model_file}\n"
+        f"开始检测: {target}\n"
+        f"使用模型: {model_file}\n"
         f"检测模式: {mode.label} (阈值 {effective_threshold:.4f}，{mode.description})"
     )
     yield PredictionLog(
@@ -617,7 +617,7 @@ def MODEL_PREDICT(
     if processed:
         summary_msg = (
             f"预测完成，共处理 {processed}/{total_files} 个文件，其中 {malicious} 个被判定为恶意"
-            f" (模式: {mode.label}, 阈�?{effective_threshold:.4f})"
+            f" (模式: {mode.label}, 阈值 {effective_threshold:.4f})"
         )
         top_probability = max(item["probability"] for item in predictions)
         malicious_ratio = malicious / processed if processed else 0.0

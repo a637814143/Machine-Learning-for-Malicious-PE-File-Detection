@@ -100,30 +100,6 @@ def _format_prediction_summary_html(summary: Dict[str, Any]) -> str:
         )
 
     html_lines.append("</tbody></table>")
-
-    def _render_list(title: str, entries: List[Dict[str, Any]]) -> None:
-        if not entries:
-            return
-        html_lines.append(f"<h3 style='margin-bottom:6px;'>{escape(title)}</h3>")
-        html_lines.append("<ol style='margin-top:0;padding-left:20px;'>")
-        for item in entries:
-            file_path = escape(str(item.get("file", "未知")))
-            verdict = escape(str(item.get("verdict", "")))
-            display_prob = float(item.get("display_probability", 0.0) or 0.0)
-            interpretation = escape(str(item.get("score_interpretation", "") or ""))
-            entry_html = (
-                "<li>"
-                f"<code>{file_path}</code> -> {verdict}，恶意概率 {display_prob:.4f}%"
-            )
-            if interpretation:
-                entry_html += f"；{interpretation}"
-            entry_html += "</li>"
-            html_lines.append(entry_html)
-        html_lines.append("</ol>")
-
-    _render_list("最值得关注的恶意样本", suspicious_entries)
-    _render_list("模型判定为良性的代表样本", benign_entries)
-
     html_lines.append(
         "<p style='color:#888;margin-top:24px;'>以上结果基于当前加载的 LightGBM 模型，"
         "建议结合动态分析与人工复核。</p>"
@@ -406,6 +382,7 @@ def model_prediction_task(args, progress, text):
 
     mode_key = None
     threshold_override = None
+    model_override = None
     cleaned_args = []
     for arg in args:
         if isinstance(arg, str) and arg.startswith("MODE::"):
@@ -417,6 +394,9 @@ def model_prediction_task(args, progress, text):
             except ValueError:
                 threshold_override = None
             continue
+        if isinstance(arg, str) and arg.startswith("MODEL::"):
+            model_override = arg.split("MODEL::", 1)[1] or None
+            continue
         cleaned_args.append(arg)
 
     args = tuple(cleaned_args)
@@ -426,6 +406,7 @@ def model_prediction_task(args, progress, text):
         logs = MODEL_PREDICT(
             src,
             dst,
+            model_path=model_override,
             threshold=threshold_override,
             mode_key=mode_key,
         )
@@ -473,7 +454,7 @@ def test_model_task(args, progress, text):
     """Evaluate the packaged model on the test PE corpus used by the GUI."""
 
     root_dir = Path(__file__).resolve().parents[2]
-    default_dataset = root_dir / "data" / "raw" / "test"
+    default_dataset = root_dir / "data" / "test"
     default_model = root_dir / "model.txt"
 
     # 从参数中提取自定义路径（忽略线程数等纯数字参数）
@@ -538,7 +519,8 @@ def test_model_task(args, progress, text):
             continue
 
         predicted_malicious = prob >= threshold
-        actual_malicious = "virusshare" in file_path.name.lower()
+        actual_malicious = "benign" not in file_path.name.lower()
+        actual_malicious = actual_malicious or "virusshare" in file_path.name.lower()
         verdict = "恶意" if predicted_malicious else "良性"
         truth_label = "恶意" if actual_malicious else "良性"
 
