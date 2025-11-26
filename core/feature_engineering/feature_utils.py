@@ -113,10 +113,6 @@ def Hash_sha256(file_path: str, size: int = 4 * 1024 * 1024) -> str:
     return sha.hexdigest()
 
 
-def Appeared() -> str:
-    return "2018-11"
-
-
 def Label(file_path: str) -> int:
     """
     打标签
@@ -127,14 +123,6 @@ def Label(file_path: str) -> int:
 
     return label
 
-
-def Avclass(file_path: str) -> str:
-    """
-    恶意类型，我不知道怎么实现
-    :param file_path:
-    :return:
-    """
-    return "unknown" if 'malware' in file_path else ""
 
 
 def ByteHistogram(pe_path: str, is_normalize: bool = False) -> np.ndarray:

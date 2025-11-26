@@ -1,6 +1,7 @@
 
 # app/ui/main_window.py
 
+import random
 from datetime import datetime
 from pathlib import Path
 
@@ -300,6 +301,26 @@ class MachineLearningPEUI(QtWidgets.QDialog):
         self.threadCountSpinBox.setMinimum(1)
         self.threadCountSpinBox.setMaximum(100)
         self.threadCountSpinBox.setValue(8)  # 默认8个线程
+
+        # JSONL 工具箱
+        toolbox_top = base_y + 80
+        self.jsonlToolboxGroup = QtWidgets.QGroupBox("", self)
+        self.jsonlToolboxGroup.setGeometry(base_x, toolbox_top, 470, 130)
+
+        self.jsonlPathLineEdit = QtWidgets.QLineEdit(self.jsonlToolboxGroup)
+        self.jsonlPathLineEdit.setGeometry(20, 35, 320, 30)
+        self.jsonlPathLineEdit.setPlaceholderText("请选择 JSONL 文件")
+
+        self.jsonlBrowseButton = QtWidgets.QPushButton("JSONL", self.jsonlToolboxGroup)
+        self.jsonlBrowseButton.setGeometry(350, 35, 90, 32)
+
+        self.jsonlSampleButton = QtWidgets.QPushButton("抽取20%样本", self.jsonlToolboxGroup)
+        self.jsonlSampleButton.setGeometry(20, 80, 140, 32)
+
+        self.jsonlStatusLabel = QtWidgets.QLabel("请选择一个 JSONL 文件", self.jsonlToolboxGroup)
+        self.jsonlStatusLabel.setGeometry(170, 80, 270, 40)
+        self.jsonlStatusLabel.setWordWrap(True)
+        self._update_jsonl_status("请选择一个 JSONL 文件")
         self.threadCountSpinBox.setToolTip("设置特征提取使用的线程数（1-100）")
 
         self.modeLabel = QtWidgets.QLabel("检测模式", self)
@@ -370,6 +391,10 @@ class MachineLearningPEUI(QtWidgets.QDialog):
         self.btn_view_logs.clicked.connect(self.view_logs)
         self.btn_clear_text.clicked.connect(self.clear_result_text)
 
+        # JSONL 工具箱
+        self.jsonlBrowseButton.clicked.connect(self.select_jsonl_file)
+        self.jsonlSampleButton.clicked.connect(self.sample_jsonl_file)
+
         # 记住模型文件路径
         self.modelPathLineEdit.editingFinished.connect(self._handle_model_path_edited)
 
@@ -436,6 +461,88 @@ class MachineLearningPEUI(QtWidgets.QDialog):
         if path:
             self.modelPathLineEdit.setText(path)
             self._remember_model_path(path)
+
+    def _update_jsonl_status(self, message: str, is_error: bool = False):
+        color = "#c13131" if is_error else "#1c1c1e"
+        self.jsonlStatusLabel.setStyleSheet(f"color:{color};")
+        self.jsonlStatusLabel.setText(message)
+
+    def select_jsonl_file(self):
+        """选择 JSONL 文件"""
+        set_log(GET_TIME("[DEBUG] select_jsonl_file called"))
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "选择 JSONL 文件",
+            filter="JSON Lines (*.jsonl);;所有文件 (*)",
+        )
+        if path:
+            self.jsonlPathLineEdit.setText(path)
+            self._update_jsonl_status(f"已选择：{Path(path).name}")
+
+    def sample_jsonl_file(self):
+        """随机抽取 20% 的 JSONL 数据"""
+        source_text = self.jsonlPathLineEdit.text().strip()
+        if not source_text:
+            self._update_jsonl_status("请先选择 JSONL 文件", True)
+            return
+
+        source_path = Path(source_text)
+        if not source_path.exists() or not source_path.is_file():
+            self._update_jsonl_status("所选 JSONL 文件不存在", True)
+            return
+
+        if source_path.suffix.lower() != ".jsonl":
+            self._update_jsonl_status("仅支持 .jsonl 文件", True)
+            return
+
+        try:
+            output_path, kept, total = self._write_jsonl_sample(source_path, ratio=0.2)
+        except Exception as exc:
+            set_log(GET_TIME(f"[ERROR] JSONL sampling failed: {exc}"))
+            self._update_jsonl_status("抽样失败，请检查日志", True)
+            return
+
+        if total == 0:
+            self._update_jsonl_status("原始文件为空，未生成样本", True)
+            return
+
+        self._update_jsonl_status(f"已生成 {kept}/{total} 行：{output_path.name}")
+        set_log(
+            GET_TIME(
+                f"[INFO] JSONL sampled {kept}/{total} lines from {source_path} to {output_path}"
+            )
+        )
+
+    def _write_jsonl_sample(self, jsonl_path: Path, ratio: float):
+        """将 JSONL 抽样为固定比例"""
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        percentage = int(ratio * 100)
+        output_name = (
+            f"{jsonl_path.stem}_sample_{percentage}pct_{timestamp}{jsonl_path.suffix}"
+        )
+        output_path = jsonl_path.with_name(output_name)
+
+        rng = random.Random()
+        total = 0
+        kept = 0
+        last_line = ""
+
+        with jsonl_path.open("r", encoding="utf-8", errors="ignore") as src, output_path.open(
+            "w", encoding="utf-8"
+        ) as dst:
+            for line in src:
+                total += 1
+                last_line = line
+                if rng.random() < ratio:
+                    dst.write(line)
+                    kept += 1
+
+            if kept == 0 and total > 0:
+                # Ensure at least one line remains so downstream tooling is not empty
+                dst.write(last_line)
+                kept = 1
+
+        return output_path, kept, total
 
     def _get_params(self):
         """获取参数"""

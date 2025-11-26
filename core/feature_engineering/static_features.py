@@ -14,9 +14,7 @@ from scripts.FILE_NAME import NAME_RULE
 from .feature_utils import (
     Hash_sha256,
     Hash_md5,
-    Appeared,
     Label,
-    Avclass,
     ByteEntropyHistogram,
     ByteHistogram,
     General,
@@ -118,20 +116,12 @@ def extract_features(pe_path: Union[str, Path], progress_callback=None) -> Dict[
         features["md5"] = ""
         set_log(GET_TIME(f"[ERROR] hash saved failed {e}"))
 
-    try:
-        features["appeared"] = Appeared()
-    except Exception:
-        features["appeared"] = ""
 
     try:
         features["label"] = Label(str(pe_path))
     except Exception:
         features["label"] = 0
 
-    try:
-        features["avclass"] = Avclass(str(pe_path))
-    except Exception:
-        features["avclass"] = ""
 
     current_step += 1
     progress_callback(int(current_step / total_steps * 100))
