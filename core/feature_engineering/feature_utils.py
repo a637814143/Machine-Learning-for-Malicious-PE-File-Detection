@@ -504,7 +504,7 @@ def Header(file_path: str) -> Dict:
     if hdr is not None:
         # timestamp
         try:
-            ts = int(getattr(hdr, "time_date_stamp", 0))
+            ts = int(getattr(hdr, "time_date_stamps", 0))
             out["coff"]["timestamp"] = ts
         except Exception:
             pass
