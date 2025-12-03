@@ -53,7 +53,7 @@ DETECTION_MODES: Dict[str, DetectionMode] = {
         key="high_sensitivity",
         label="高敏",
         description="对恶意程序低容忍度，误判率较高",
-        threshold=0.0305,
+        threshold=0.0295,
     ),
 }
 

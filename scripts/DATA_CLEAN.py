@@ -1,14 +1,24 @@
-
 from __future__ import annotations
 
 """Simple data cleaning utilities for PE datasets."""
 
 import hashlib
+import struct
 import time
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional
+from typing import Dict, Iterator, List, Optional, Tuple
 
-PE_SUFFIXES = {".exe", ".dll", ".sys", ".bin", ".scr", ".ocx"}
+IMAGE_DOS_SIGNATURE = b"MZ"
+IMAGE_NT_SIGNATURE = b"PE\x00\x00"
+IMAGE_OPTIONAL_MAGIC_PE32 = 0x10B
+IMAGE_OPTIONAL_MAGIC_PE32_PLUS = 0x20B
+IMAGE_FILE_DLL = 0x2000
+IMAGE_SUBSYSTEM_NATIVE = 0x0001
+SUFFIX_ALIASES = {
+    ".ocx": ".dll",
+    ".scr": ".exe",
+    ".bin": ".exe",
+}
 
 
 class CleaningLog(Dict[str, object]):
@@ -23,21 +33,87 @@ def _iter_files(target: Path) -> List[Path]:
     return [p for p in target.rglob("*") if p.is_file()]
 
 
+def _normalize_suffix(value: str) -> str:
+    """Normalize suffixes so that .ocx/.scr/.bin map to canonical PE suffixes."""
+
+    normalized = value.lower()
+    return SUFFIX_ALIASES.get(normalized, normalized)
+
+
+def _detect_pe_suffix(data: bytes) -> Optional[str]:
+    """Return the canonical suffix that matches the PE characteristics, if any."""
+
+    if len(data) < 64 or not data.startswith(IMAGE_DOS_SIGNATURE):
+        return None
+    try:
+        pe_offset = struct.unpack_from("<I", data, 0x3C)[0]
+    except struct.error:
+        return None
+    if pe_offset <= 0 or pe_offset + 24 > len(data):
+        return None
+    if data[pe_offset : pe_offset + 4] != IMAGE_NT_SIGNATURE:
+        return None
+
+    coff_offset = pe_offset + 4
+    optional_header_offset = coff_offset + 20
+    if optional_header_offset + 2 > len(data):
+        return None
+    try:
+        characteristics = struct.unpack_from("<H", data, coff_offset + 18)[0]
+        optional_header_size = struct.unpack_from("<H", data, coff_offset + 16)[0]
+    except struct.error:
+        return None
+
+    if characteristics & IMAGE_FILE_DLL:
+        return ".dll"
+
+    if optional_header_size >= 70 and optional_header_offset + 70 <= len(data):
+        try:
+            magic = struct.unpack_from("<H", data, optional_header_offset)[0]
+        except struct.error:
+            magic = None
+        if magic in (IMAGE_OPTIONAL_MAGIC_PE32, IMAGE_OPTIONAL_MAGIC_PE32_PLUS):
+            try:
+                subsystem = struct.unpack_from("<H", data, optional_header_offset + 68)[0]
+            except struct.error:
+                subsystem = None
+            if subsystem == IMAGE_SUBSYSTEM_NATIVE:
+                return ".sys"
+
+    return ".exe"
+
+
+def _ensure_suffix(file_path: Path, required_suffix: str) -> Tuple[Path, Optional[str]]:
+    """Rename the file so that it uses the required suffix, avoiding collisions."""
+
+    required_suffix = required_suffix.lower()
+    candidate = file_path.with_suffix(required_suffix)
+    if candidate == file_path:
+        return file_path, None
+
+    def _rename(target: Path) -> Tuple[Path, Optional[str]]:
+        try:
+            file_path.rename(target)
+            return target, f"重命名为 {target.name}"
+        except OSError as exc:
+            return file_path, f"重命名失败: {exc}"
+
+    if not candidate.exists():
+        return _rename(candidate)
+
+    parent = file_path.parent
+    base_name = file_path.stem
+    counter = 1
+    while counter < 1000:
+        alt = parent / f"{base_name}_{counter}{required_suffix}"
+        if not alt.exists():
+            return _rename(alt)
+        counter += 1
+    return file_path, "重命名失败: 没有可用的文件名"
+
+
 def DATA_CLEAN(input_path: str, output_dir: Optional[str] = None) -> Iterator[CleaningLog]:
-    """Clean PE dataset by 删除无效或重复的文件，直接在原目录中清理。
-
-    Parameters
-    ----------
-    input_path:
-        File or directory containing raw samples.
-    output_dir:
-        Optional directory used to 保存清洗日志。文件将被原地删除，而不是复制到新的目录。
-
-    Yields
-    ------
-    CleaningLog
-        Structured events describing the progress of the cleaning process.
-    """
+    """Clean PE dataset by removing invalid or duplicate files in place."""
 
     src = Path(input_path).expanduser().resolve()
     log_root: Optional[Path] = None
@@ -79,14 +155,15 @@ def DATA_CLEAN(input_path: str, output_dir: Optional[str] = None) -> Iterator[Cl
         action_detail: Optional[str] = None
         remove_reason: Optional[str] = None
 
-        if file_path.suffix.lower() not in PE_SUFFIXES:
-            remove_reason = "非PE文件"
-            removed_non_pe += 1
+        data = file_path.read_bytes()
+        if not data:
+            remove_reason = "空文件"
+            removed_empty += 1
         else:
-            data = file_path.read_bytes()
-            if not data:
-                remove_reason = "空文件"
-                removed_empty += 1
+            detected_suffix = _detect_pe_suffix(data)
+            if not detected_suffix:
+                remove_reason = "非 PE 文件"
+                removed_non_pe += 1
             else:
                 digest = hashlib.sha256(data).hexdigest()
                 if digest in seen_hashes:
@@ -95,7 +172,15 @@ def DATA_CLEAN(input_path: str, output_dir: Optional[str] = None) -> Iterator[Cl
                 else:
                     seen_hashes.add(digest)
                     kept += 1
-                    message = f"保留 {file_path}"
+                    rename_info: Optional[str] = None
+                    normalized_suffix = _normalize_suffix(file_path.suffix.lower())
+                    if normalized_suffix != detected_suffix:
+                        file_path, rename_info = _ensure_suffix(file_path, detected_suffix)
+
+                    suffix_label = detected_suffix.lstrip(".").upper()
+                    message = f"保留 {file_path} (识别为 {suffix_label})"
+                    if rename_info:
+                        message = f"{message}，{rename_info}"
 
         if remove_reason:
             try:
