@@ -95,3 +95,55 @@
 2025/11/25 18:56:45 [DEBUG] select_output_file called
 2025/11/25 18:56:50 [DEBUG] select_validation_vectors called
 2025/11/26 16:14:57 [INFO] 启动GUI并使用了C:\Python Projects\Machine-Learning-for-Malicious-PE-File-Detection-main\app\styles\10.qss
+2025/11/26 19:36:01 [DEBUG] select_input_file called
+2025/11/26 19:36:12 [DEBUG] select_jsonl_file called
+2025/11/26 19:36:17 [INFO] JSONL sampled 33867/170000 lines from C:\Python Projects\Machine-Learning-for-Malicious-PE-File-Detection-main\data\jsonl\file6.jsonl to C:\Python Projects\Machine-Learning-for-Malicious-PE-File-Detection-main\data\jsonl\file6_sample_20pct_20251126_193616.jsonl
+2025/11/26 19:36:23 [DEBUG] select_input_file called
+2025/11/26 19:36:28 [DEBUG] select_output_file called
+2025/11/26 19:38:51 [DEBUG] select_input_file called
+2025/11/26 19:39:22 [DEBUG] select_input_file called
+2025/11/26 19:39:40 [DEBUG] select_output_file called
+2025/11/26 19:39:51 [DEBUG] select_validation_vectors called
+2025/11/26 19:41:59 [DEBUG] select_input_file called
+2025/11/28 19:08:05 [INFO] 启动GUI并使用了C:\Python Projects\Machine-Learning-for-Malicious-PE-File-Detection-main\app\styles\10.qss
+2025/11/28 19:09:21 [DEBUG] select_input_file called
+2025/11/28 19:10:54 [DEBUG] select_input_file called
+2025/11/28 19:11:46 [DEBUG] select_input_file called
+2025/11/28 19:11:58 [INFO] Markdown file saved at C:\Python Projects\Machine-Learning-for-Malicious-PE-File-Detection-main\docs\Ransomware.CryptoLocker_report_20251128_191158.md
+2025/11/30 21:46:12 [INFO] 启动GUI并使用了C:\Python Projects\Machine-Learning-for-Malicious-PE-File-Detection-main\app\styles\10.qss
+2025/11/30 21:46:17 [DEBUG] select_input_file called
+2025/11/30 21:46:19 [DEBUG] select_input_file called
+2025/11/30 21:46:50 [INFO] Markdown file saved at C:\Python Projects\Machine-Learning-for-Malicious-PE-File-Detection-main\docs\Ransomware.CryptoLocker_report_20251130_214650.md
+2025/11/30 22:22:30 [INFO] 启动GUI并使用了C:\Python Projects\Machine-Learning-for-Malicious-PE-File-Detection-main\app\styles\10.qss
+2025/11/30 22:22:42 [DEBUG] select_input_file called
+2025/11/30 22:23:02 [INFO] Markdown file saved at C:\Python Projects\Machine-Learning-for-Malicious-PE-File-Detection-main\docs\winmm_report_20251130_222302.md
+2025/11/30 22:35:25 [INFO] 启动GUI并使用了C:\Python Projects\Machine-Learning-for-Malicious-PE-File-Detection-main\app\styles\10.qss
+2025/11/30 22:35:30 [DEBUG] select_input_file called
+2025/11/30 22:35:45 [INFO] Markdown file saved at C:\Python Projects\Machine-Learning-for-Malicious-PE-File-Detection-main\docs\Ransomware.Satana_report_20251130_223545.md
+2025/11/30 22:36:05 [DEBUG] select_input_file called
+2025/11/30 22:36:10 [INFO] Markdown file saved at C:\Python Projects\Machine-Learning-for-Malicious-PE-File-Detection-main\docs\Ransomware.CryptoLocker_report_20251130_223610.md
+2025/11/30 22:42:33 [INFO] 启动GUI并使用了C:\Python Projects\Machine-Learning-for-Malicious-PE-File-Detection-main\app\styles\10.qss
+2025/11/30 22:42:36 [DEBUG] select_input_file called
+2025/11/30 22:42:44 [INFO] Markdown file saved at C:\Python Projects\Machine-Learning-for-Malicious-PE-File-Detection-main\docs\winmm_report_20251130_224244.md
+2025/11/30 22:44:23 [DEBUG] select_input_file called
+2025/11/30 22:44:25 [DEBUG] select_output_file called
+2025/11/30 22:46:20 [INFO] 启动GUI并使用了C:\Python Projects\Machine-Learning-for-Malicious-PE-File-Detection-main\app\styles\10.qss
+2025/11/30 22:46:24 [DEBUG] select_input_file called
+2025/11/30 22:46:30 [DEBUG] select_output_file called
+2025/12/01 15:12:31 [INFO] 启动GUI并使用了C:\Python Projects\Machine-Learning-for-Malicious-PE-File-Detection-main\app\styles\10.qss
+2025/12/01 15:13:00 [DEBUG] select_input_file called
+2025/12/01 15:14:34 [INFO] Markdown file saved at C:\Python Projects\Machine-Learning-for-Malicious-PE-File-Detection-main\docs\Ransomware.BadRabbit_report_20251201_151434.md
+2025/12/01 15:14:48 [DEBUG] select_output_file called
+2025/12/01 15:15:11 [DEBUG] select_input_file called
+2025/12/01 15:15:16 [DEBUG] select_output_file called
+2025/12/02 19:24:26 [INFO] 启动GUI并使用了C:\Python Projects\Machine-Learning-for-Malicious-PE-File-Detection-main\app\styles\10.qss
+2025/12/02 19:41:06 [INFO] 启动GUI并使用了C:\Python Projects\Machine-Learning-for-Malicious-PE-File-Detection-main\app\styles\10.qss
+2025/12/02 19:41:10 [DEBUG] select_input_file called
+2025/12/02 20:01:07 [INFO] 启动GUI并使用了C:\Python Projects\Machine-Learning-for-Malicious-PE-File-Detection-main\app\styles\10.qss
+2025/12/02 20:01:15 [DEBUG] select_input_file called
+2025/12/02 23:14:57 [INFO] 启动GUI并使用了C:\Python Projects\Machine-Learning-for-Malicious-PE-File-Detection-main\app\styles\10.qss
+2025/12/02 23:15:03 [DEBUG] select_input_file called
+2025/12/03 23:24:23 [INFO] 启动GUI并使用了C:\Python Projects\Machine-Learning-for-Malicious-PE-File-Detection-main\app\styles\10.qss
+2025/12/03 23:24:47 [DEBUG] select_input_file called
+2025/12/03 23:25:22 [INFO] 启动GUI并使用了C:\Python Projects\Machine-Learning-for-Malicious-PE-File-Detection-main\app\styles\10.qss
+2025/12/03 23:25:30 [DEBUG] select_input_file called

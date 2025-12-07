@@ -16,7 +16,7 @@ if str(ROOT) not in sys.path:
 
 from core.utils.lightgbm_loader import import_lightgbm
 
-try:  # pragma: no cover - optional dependency in tests
+try:  # pragma: no cover - optional dependency in Frida dynamic testing
     lgb = import_lightgbm()
 except ModuleNotFoundError as exc:  # pragma: no cover - provide helpful guidance
     raise ImportError("请先安装 lightgbm: pip install lightgbm") from exc
