@@ -57,6 +57,12 @@ def _stringify_value(value: Any) -> str:
 
 
 def _summarise_dynamic(dynamic: dict[str, Any]) -> dict[str, Any]:
+    if isinstance(dynamic, dict) and isinstance(dynamic.get("events"), dict):
+        return _summarise_dynamic_v2(dynamic)
+    return _summarise_dynamic_v1(dynamic)
+
+
+def _summarise_dynamic_v1(dynamic: dict[str, Any]) -> dict[str, Any]:
     mapping = {
         "file_operations": ("文件操作", 0.25, 12),
         "network_activity": ("网络通信", 0.6, 12),
@@ -109,14 +115,96 @@ def _summarise_dynamic(dynamic: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _summarise_dynamic_v2(dynamic: dict[str, Any]) -> dict[str, Any]:
+    events = dynamic.get("events") if isinstance(dynamic.get("events"), dict) else {}
+    summary_counts = dynamic.get("summary") if isinstance(dynamic.get("summary"), dict) else {}
+
+    categories = [
+        ("file", "文件 / IO", 0.22, 40),
+        ("net", "网络通信", 0.8, 25),
+        ("reg", "注册表操作", 0.35, 16),
+        ("proc", "进程 / 命令", 0.6, 15),
+        ("summary", "聚合统计", 0.2, 8),
+        ("misc", "其他事件", 0.1, 8),
+    ]
+
+    counts: list[tuple[str, int]] = []
+    highlights: list[str] = []
+    score = 0.0
+    total_events = 0
+
+    for key, title, weight, cap in categories:
+        entries = _normalise_entries(events.get(key))
+        count = _to_int(summary_counts.get(f"{key}_count"), len(entries))
+        total_events += count
+        counts.append((title, count))
+        score += min(count, cap) * weight
+        for entry in entries[: min(3, len(entries))]:
+            highlights.append(f"{title}: {_stringify_value(entry)}")
+
+    errors = [
+        _stringify_value(entry) for entry in _normalise_entries(events.get("error"))
+    ]
+    if errors:
+        total_events += len(errors)
+        score += min(len(errors), 5) * 0.1
+
+    score = min(10.0, round(score, 2))
+    if score >= 7.0:
+        risk_level = "高风险"
+        guidance = "观察到明显的进程/网络/注册表操作，请结合静态分析立即响应。"
+    elif score >= 4.0:
+        risk_level = "中等风险"
+        guidance = "检测到可疑外联或系统修改，建议继续跟进。"
+    else:
+        risk_level = "低风险"
+        guidance = "行为事件有限，建议结合模型输出综合判断。"
+
+    return {
+        "counts": counts,
+        "score": score,
+        "risk_level": risk_level,
+        "guidance": guidance,
+        "highlights": highlights,
+        "errors": errors,
+        "total_events": total_events,
+    }
+
+
 def _format_dynamic_markdown(dynamic: dict[str, Any]) -> list[str]:
     summary = _summarise_dynamic(dynamic)
+    meta = dynamic.get("meta") if isinstance(dynamic.get("meta"), dict) else {}
     lines = [
         "## 动态分析摘要",
         "",
         f"- 风险评级: **{summary['risk_level']}** (行为得分 {summary['score']:.1f}/10)",
         f"- 采集到的行为事件总数: {summary['total_events']}",
     ]
+
+    meta_parts: list[str] = []
+    if meta:
+        exe_name = meta.get("exe_name") or meta.get("file")
+        profile = meta.get("profile")
+        timeout = meta.get("timeout")
+        max_events = meta.get("max_events")
+        start = meta.get("start_time")
+        end = meta.get("end_time")
+        if exe_name:
+            meta_parts.append(f"样本 {exe_name}")
+        if profile:
+            meta_parts.append(f"profile {profile}")
+        if timeout:
+            meta_parts.append(f"超时时间 {timeout}s")
+        if max_events:
+            meta_parts.append(f"最大事件 {max_events}")
+        try:
+            if start is not None and end is not None and float(end) >= float(start):
+                meta_parts.append(f"运行时长 {float(end) - float(start):.1f}s")
+        except Exception:
+            pass
+
+    if meta_parts:
+        lines.append(f"- 运行信息: {'； '.join(meta_parts)}")
 
     if summary["guidance"]:
         lines.append(f"- 建议: {summary['guidance']}")

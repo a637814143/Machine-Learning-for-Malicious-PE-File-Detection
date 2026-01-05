@@ -628,7 +628,7 @@ def MODEL_PREDICT(
         benign_samples = [p for p in predictions if p["verdict"] == "良性"]
         top_suspicious = sorted(
             malicious_samples, key=lambda item: item["probability"], reverse=True
-        )[: min(5, len(malicious_samples))]
+        )[: min(20, len(malicious_samples))]
         most_benign = sorted(
             benign_samples, key=lambda item: item["probability"]
         )[: min(5, len(benign_samples))]

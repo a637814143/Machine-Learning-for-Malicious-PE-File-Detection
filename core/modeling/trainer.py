@@ -65,6 +65,14 @@ class DatasetBundle:
             )
 
 
+@dataclass(frozen=True)
+class TrainingResult:
+    """Return value combining the LightGBM booster and evaluation metrics."""
+
+    booster: Any
+    evaluation_metrics: Dict[str, Dict[str, Any]]
+
+
 def _import_lightgbm() -> lgb:
     """Import LightGBM lazily and provide actionable error messages."""
 
@@ -308,6 +316,88 @@ def _prepare_valid_sets(
     return valid_sets, valid_names
 
 
+def _compute_binary_classification_metrics(
+    labels: np.ndarray,
+    probabilities: np.ndarray,
+    *,
+    threshold: float,
+) -> Dict[str, Any]:
+    """Return accuracy-style metrics for binary classification predictions."""
+
+    labels_arr = np.asarray(labels, dtype=np.int64).reshape(-1)
+    probs_arr = np.asarray(probabilities, dtype=np.float64).reshape(-1)
+    if labels_arr.shape[0] != probs_arr.shape[0]:
+        raise ValueError(
+            "预测数量与标签数量不一致，无法计算评估指标"
+        )
+
+    predicted_positive = probs_arr >= threshold
+    predicted_negative = np.logical_not(predicted_positive)
+    positive_mask = labels_arr == 1
+    negative_mask = labels_arr == 0
+
+    tp = int(np.logical_and(predicted_positive, positive_mask).sum())
+    fp = int(np.logical_and(predicted_positive, negative_mask).sum())
+    tn = int(np.logical_and(predicted_negative, negative_mask).sum())
+    fn = int(np.logical_and(predicted_negative, positive_mask).sum())
+
+    total = tp + tn + fp + fn
+    accuracy = float((tp + tn) / total) if total else 0.0
+    precision = float(tp / (tp + fp)) if (tp + fp) else None
+    recall = float(tp / (tp + fn)) if (tp + fn) else None
+    if precision is not None and recall is not None and (precision + recall):
+        f1_score = float(2 * precision * recall / (precision + recall))
+    else:
+        f1_score = None
+
+    return {
+        "samples": total,
+        "accuracy": accuracy,
+        "precision": precision,
+        "recall": recall,
+        "f1_score": f1_score,
+        "tp": tp,
+        "tn": tn,
+        "fp": fp,
+        "fn": fn,
+        "threshold": float(threshold),
+    }
+
+
+def _generate_evaluation_reports(
+    booster: Any,
+    evaluation_bundles: Sequence[Tuple[str, DatasetBundle]],
+    *,
+    threshold: float,
+) -> Dict[str, Dict[str, Any]]:
+    """Evaluate the trained booster on the given datasets."""
+
+    reports: Dict[str, Dict[str, Any]] = {}
+    if not evaluation_bundles:
+        return reports
+
+    predict_kwargs: Dict[str, Any] = {}
+    best_iteration = getattr(booster, "best_iteration", None)
+    if isinstance(best_iteration, numbers.Integral) and int(best_iteration) > 0:
+        predict_kwargs["num_iteration"] = int(best_iteration)
+
+    for name, bundle in evaluation_bundles:
+        raw_predictions = booster.predict(bundle.vectors, **predict_kwargs)
+        probabilities = np.asarray(raw_predictions, dtype=np.float64).reshape(-1)
+        if probabilities.shape[0] != bundle.labels.shape[0]:
+            raise ValueError(
+                f"{name} 数据集预测数量({probabilities.shape[0]})与标签数量"
+                f"({bundle.labels.shape[0]})不一致"
+            )
+        reports[name] = _compute_binary_classification_metrics(
+            bundle.labels,
+            probabilities,
+            threshold=threshold,
+        )
+
+    return reports
+
+
 def _make_progress_callback(
     total_rounds: int,
     progress_callback: Optional[callable],
@@ -367,9 +457,21 @@ def train_ember_model_from_npy(
     progress_callback=None,
     text_callback=None,
     status_callback=None,
-) -> Any:
+    compute_eval_metrics: bool = False,
+    evaluation_threshold: float = 0.5,
+) -> Union[Any, TrainingResult]:
     """Train a LightGBM model using feature/label arrays stored in ``.npz``
-    archives (legacy ``.npy`` pickle files remain supported)."""
+    archives (legacy ``.npy`` pickle files remain supported).
+
+    Parameters
+    ----------
+    compute_eval_metrics:
+        When True, evaluate the trained model on the train/validation sets and
+        return a :class:`TrainingResult` that contains those metrics.
+    evaluation_threshold:
+        Probability threshold used to convert predictions into binary labels
+        when computing metrics.
+    """
 
     lgb_module = _import_lightgbm()
 
@@ -539,8 +641,29 @@ def train_ember_model_from_npy(
             if text_callback is not None:
                 text_callback(f"模型已保存到 {output_path}")
 
+    evaluation_metrics: Dict[str, Dict[str, Any]] = {}
+    if compute_eval_metrics:
+        evaluation_targets: List[Tuple[str, DatasetBundle]] = [("train", train_bundle)]
+        evaluation_targets.extend(valid_bundles)
+        try:
+            evaluation_metrics = _generate_evaluation_reports(
+                booster,
+                evaluation_targets,
+                threshold=evaluation_threshold,
+            )
+        except Exception as exc:
+            evaluation_metrics = {}
+            if text_callback is not None:
+                text_callback(f"计算评估指标失败: {exc}")
+
     if progress_callback is not None:
         progress_callback(100)
+
+    if compute_eval_metrics:
+        return TrainingResult(
+            booster=booster,
+            evaluation_metrics=evaluation_metrics,
+        )
 
     return booster
 
